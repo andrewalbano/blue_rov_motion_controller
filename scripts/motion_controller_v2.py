@@ -2,29 +2,13 @@
 import rospy
 import numpy as np
 import matplotlib.pyplot as plt
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped
 from tf.transformations import euler_from_quaternion
-from mavros_msgs.msg import OverrideRCIn
+# from mavros_msgs.msg import OverrideRCIn
 import time
-from pymavlink import mavutil
+# from pymavlink import mavutil
 import threading
-
-
-# Set of waypoints (x, y) in the global frame
-waypoints = []
-# waypoints = generate_lawnmower_pattern(4, 3, strip_width=.75, spacing=1)
-# waypoints = create_semicircle(np.array([0, 0]), radius=2, angle=np.pi/2, increments=10)
-
-# Initialize current position and yaw
-global current_position 
-current_position = {'x': 0.0, 'y': 0.0, 'yaw': 0.0}
-x_vals = []
-y_vals = [] 
-yaws = []
-# P Controller Gains
-Kp_position = 200.0  # Proportional gain for position control (x, y)
-Kp_yaw = 80       # Proportional gain for yaw control
-
+from std_msgs.msg import Bool
 
 CONTROL_CLIP = (1400, 1600)
 
@@ -33,7 +17,7 @@ class MotionControl:
         
         self.current_pose = PoseStamped()
         self.current_pose = PoseStamped()
-        self.waypoints = []
+        self.waypoints = PoseArray()
 
         self.current_waypoint = PoseStamped()
         self.waypoint_index = 0 
@@ -43,22 +27,66 @@ class MotionControl:
         self.y_vals = []
         self.yaws = []
 
-
-
         # P Controller Gains
-        self.Kp_position = 200.0  # Proportional gain for position control (x, y)
-        self.Kp_yaw = 80       # Proportional gain for yaw control
+        self.Kp_position = 0.1 # Proportional gain for position control (x, y)
+        self.Kp_yaw = 1     # Proportional gain for yaw control
 
         # errors ... might need to initialize as very large values
         self.error_x = 0
         self.error_y = 0
         self.error_z = 0
+        self.error_roll = 0
+        self.error_pitch = 0
+        self.error_yaw = 0
 
-        self.threshold = 0.2
+        # Control values
+        self.x_control = 0
+        self.y_control = 0
+        self.z_control = 0
+        self.roll_control = 0
+        self.pitch_control = 0
+        self.yaw_control = 0
 
+        # Simulated Control values
+        self.velocity_command = TwistStamped()
+        self.velocity_command.header.frame_id = "base_link"  # Example frame id
+
+        # reached waypoint threshold
+        self.tolerance = 0.2
+        # self.waypoint_distance = None
+
+        # turn on or off
+        self.invoked = Bool()
+        self.invoked = False
+
+        self.frequency =10 
+        self.rate = rospy.Rate(self.frequency)  # 10 Hz
+
+        # creating subscribers
+        self.sub1 = rospy.Subscriber('motion_control_state', Bool, self.on_off_callback)
+        self.sub2 = rospy.Subscriber('current_state_test', PoseWithCovarianceStamped, self.position_callback)
+        # self.sub1 = rospy.Subscriber('/dvl/local_position', PoseWithCovarianceStamped, self.position_callback)
+        self.sub3 = rospy.Subscriber('target_waypoints_list', PoseArray, self.waypoint_list_callback)
+
+        # creating publishers
+        self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
+
+    def on_off_callback(self,msg:Bool):
+        self.invoked = msg
+        # if self.invoked:
+        #     rospy.loginfo("Motion controller turned on")
+        # else:
+        #     rospy.loginfo("Motion controller turned off")
+        # global controller_on
+        # if msg:
+        #     controller_on = True
+        #     rospy.loginfo("Motion controller turned on")
+        # elif not msg:
+        #     controller_on= False 
+        #     rospy.loginfo("Motion controller turned off")
 
     def position_callback(self, msg:PoseWithCovarianceStamped):
-        global current_position
+
         # Extract position (x, y) from the message
         self.current_pose.header.frame_id = msg.header.frame_id
         self.current_pose.pose.position = msg.pose.pose.position
@@ -72,26 +100,21 @@ class MotionControl:
         self.x_vals.append(self.current_pose.pose.position.x)
         self.y_vals.append(self.current_pose.pose.position.y)
         self.yaws.append(yaw)
+    
+    def waypoint_list_callback(self, msg:PoseArray):
+        self.waypoints = msg
 
-        # Update the global position and yaw for the realtime plot
-        current_position['x'] = self.current_pose.pose.position.x
-        current_position['y'] = self.current_pose.pose.position.y
-        current_position['yaw'] = yaw
+    def get_current_waypoint(self):
+        self.current_waypoint.header.frame_id = self.waypoints.header.frame_id
+        self.current_waypoint.pose = self.waypoints.poses[self.waypoint_index]
 
-        x_vals.append(self.current_pose.pose.position.x)
-        y_vals.append(self.current_pose.pose.position.y)
-        yaws.append(yaw)
-        
     def update_plot(self):
         plt.ion()  # Turn on interactive mode
         fig, ax = plt.subplots()
 
         while not rospy.is_shutdown():
             if len(self.x_vals) > 0:
-                # x = current_position['x']
-                # y = current_position['y']
-                # yaw = current_position['yaw']
-
+            
                 ax.clear()  # Clear the previous plot
                 
                 # Plot the robot's trajectory (x, y)
@@ -103,6 +126,7 @@ class MotionControl:
 
                 for wp in self.waypoints: 
                     ax.scatter(wp[0], wp[1], s=4, c='green')
+
                 # Set axis limits and labels
                 ax.set_xlim(-5, 5)  # Set x-axis limit (adjust as needed)
                 ax.set_ylim(-5, 5)  # Set y-axis limit (adjust as needed)
@@ -116,20 +140,35 @@ class MotionControl:
                 plt.pause(0.1)  # Pause to update the plot``
     
     def calculate_control(self): # default to first waypoint
-        current_waypoint = 
+
+        # map frame error calculations
         # distance from waypoint (in map frame)
-        self.error_x = self.waypoints[self.waypoint_index] - self.current_pose.pose.position.x
-    
-        r = current_position['x']
-        ey_g = waypoint[1] - current_position['y']
-        
-        # Transform errors to the body frame using the robot's yaw
-        ex = np.cos(current_position['yaw']) * ex_g + np.sin(current_position['yaw']) * ey_g
-        ey = -np.sin(current_position['yaw']) * ex_g + np.cos(current_position['yaw']) * ey_g
-        
+        self.error_x = self.current_waypoint.pose.position.x - self.current_pose.pose.position.x
+        self.error_y = self.current_waypoint.pose.position.y - self.current_pose.pose.position.y
+        self.error_z = self.current_waypoint.pose.position.z - self.current_pose.pose.position.z
+
+
+        # in map frame
+        # get the current roll, pitch, yaw
+        current_roll, current_pitch, current_yaw = euler_from_quaternion([self.current_pose.pose.orientation.x,self.current_pose.pose.orientation.y, self.current_pose.pose.orientation.z, self.current_pose.pose.orientation.w])
+
+        # get the target roll, pitch, yaw 
+        target_roll, target_pitch, target_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
+
+
+
+        # Transform the position errors to the body frame using the robot's yaw
+        ex = np.cos(current_yaw) * self.error_x  + np.sin(current_yaw) * self.error_y
+        ey = -np.sin(current_yaw) * self.error_x  + np.cos(current_yaw) * self.error_y
+
+
+
+        # define the desired yaw as the yaw that will transform the x axis to point at the waypoint
+        desired_yaw = np.arctan2(self.error_y, self.error_x) 
+
         # Yaw error: difference between current yaw and desired yaw
-        desired_yaw = np.arctan2(ey_g, ex_g)  # Desired yaw angle toward waypoint
-        yaw_error = desired_yaw - current_position['yaw']
+        yaw_error = desired_yaw - current_yaw
+
         # Normalize yaw error to [-pi, pi] range
         if yaw_error > np.pi:
             yaw_error -= 2 * np.pi
@@ -137,47 +176,126 @@ class MotionControl:
             yaw_error += 2 * np.pi
 
         # Proportional control for position (x, y) and yaw
-        x_control = Kp_position * ex
-        y_control = Kp_position * ey
-        yaw_control = Kp_yaw * yaw_error
+        self.x_control = self.Kp_position * ex
+        self.y_control = self.Kp_position * ey
+        self.yaw_control = self.Kp_yaw * yaw_error
 
-        return x_control, y_control, yaw_control
+    # Function to check if the robot has reached the waypoint (within a tolerance)
+    def reached_waypoint(self):
+        waypoint_distance = np.sqrt((self.current_pose.pose.position.x - self.current_waypoint.pose.position.x)**2 + (self.current_pose.pose.position.y - self.current_waypoint.pose.position.y)**2)               
+        return waypoint_distance < self.tolerance
+    
+
+    def send_sim_control(self):
+        # Populate the TwistStamped
+        if self.invoked:
+            self.velocity_command.twist.linear.x = self.x_control  
+            self.velocity_command.twist.linear.y = self.y_control  
+            self.velocity_command.twist.linear.z = self.z_control 
+            self.velocity_command.twist.angular.x=self.roll_control
+            self.velocity_command.twist.angular.y =self.pitch_control
+            self.velocity_command.twist.angular.z =self.yaw_control  
+        else:
+            self.velocity_command.twist.linear.x = 0
+            self.velocity_command.twist.linear.y = 0  
+            self.velocity_command.twist.linear.z = 0 
+            self.velocity_command.twist.angular.x= 0
+            self.velocity_command.twist.angular.y = 0
+            self.velocity_command.twist.angular.z = 0  
+
+        # Publish the message
+        self.pub1.publish(self.velocity_command)
+        # rospy.loginfo(self.velocity_command)
+    
+    def listener(self):
+
+        if self.invoked == True:
+        # if controller_on == True:   
+            # rospy.loginfo_throttle(60,"Motion controller is enabled")
+
+            # update current waypoint every iteration and print current waypoint every 10 seconds
+            self.get_current_waypoint()
+            # rospy.loginfo_throttle(10, "current waypoint: \n", controller.current_waypoint)
+
+            # calculate the new values to send
+            self.calculate_control()
+
+            # # Check if we need to rotate to the correct heading first
+            # # If yaw control (heading) is significant, we focus on turning first
+            # if abs(controller.yaw_control) > 15.0:  # Threshold for turning (adjust as necessary)
+            #     # Prioritize turning to the correct heading
+            #     rospy.loginfo(f"Turning to heading. Current yaw error: {controller.yaw_control}")
+                
+            #     # send_control(0, 0, yaw_control, master)  # Only send yaw control (rotation)
+            # else:
+            #     # Once the heading is correct, translate towards the waypoint
+            #     rospy.loginfo(f"Yaw aligned. Translating towards waypoint.")
+            #     # send_control(x_control, y_control, 0, master)  # Only send translation control
+
+            self.send_sim_control()
+
+            # if the wayppoint is reached increment waypoint index, should consider using .pop 
+            if self.reached_waypoint():
+                try:
+                    if self.waypoint_index < len(self.waypoints.poses):
+                        rospy.loginfo(f"Reached waypoint {self.waypoint_index +1}")
+                        self.waypoint_index +=1
+                    
+                    else:
+                        rospy.loginfo("Holding postion and orientation at final waypoint") 
+                        # self.invoked = False # temporary for testing turns off the motion self once all goals are reached
+                except:
+                    rospy.loginfo("Holding postion and orientation at final waypoint") 
+                       
+        else:
+            # rospy.loginfo("self_state: ", self.invoked)
+            # rospy.loginfo_throttle(30,"Motion self is disabled") 
+            self.x_control = 0
+            self.y_control = 0
+            self.z_control = 0
+            self.roll_control = 0
+            self.pitch_control = 0
+            self.yaw_control = 0
+            self.send_sim_control()
 
 
+        rospy.sleep(0.1)    
+    # send control signals 
+    '''
+    # Function to send control inputs to the robot (e.g., through MAVLink or a ROS topic)
+    def send_control(self, master):
+        # Here we would send the control commands to the robot
+        # Example: using MAVLink RC Override
+        x_pwm = int(np.clip(1500+self.x_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
+        y_pwm = int(np.clip(1500+self.y_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
+        yaw_pwm = int(np.clip(1500+self.yaw_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
+        rospy.loginfo("Updated control: x=%.2f, y=%.2f, yaw=%.2f", x_pwm, y_pwm, yaw_pwm)
+        set_rc_channel_pwm(5, master, pwm=x_pwm)
+        set_rc_channel_pwm(6, master, pwm=y_pwm) #lateral control
+        set_rc_channel_pwm(4, master, pwm=yaw_pwm)
 
-def update_plot():
-    plt.ion()  # Turn on interactive mode
-    fig, ax = plt.subplots()
+    def set_rc_channel_pwm(self, channel_id, master, pwm=1500):
+        """ Set RC channel pwm value
+        Args:
+            channel_id (TYPE): Channel ID
+            pwm (int, optional): Channel pwm value 1100-1900
+        """
+        if channel_id < 1 or channel_id > 18:
+            print("Channel does not exist.")
+            return
 
-    while not rospy.is_shutdown():
-        if len(x_vals) > 0:
-            # x = current_position['x']
-            # y = current_position['y']
-            # yaw = current_position['yaw']
+        # Mavlink 2 supports up to 18 channels:
+        # https://mavlink.io/en/messages/common.html#RC_CHANNELS_OVERRIDE
+        rc_channel_values = [65535 for _ in range(18)]
+        rc_channel_values[channel_id - 1] = pwm
+        master.mav.rc_channels_override_send(
+            master.target_system,                # target_system
+            master.target_component,             # target_component
+            *rc_channel_values)                  # RC channel list, in microseconds.
+    '''
 
-            ax.clear()  # Clear the previous plot
-            
-            # Plot the robot's trajectory (x, y)
-            ax.plot(x_vals[-50:], y_vals[-50:], 'b-', label="Robot Path")
-            
-            # Plot the robot's orientation (yaw) as a direction indicator
-            ax.arrow(x=x_vals[-1], y=y_vals[-1], dx=0.1 * np.cos(yaws[-1]), dy=0.1 * np.sin(yaws[-1]),
-                        head_width=0.1, head_length=0.1, fc='r', ec='r', label="Yaw Direction")
 
-            for wp in waypoints: 
-                ax.scatter(wp[0], wp[1], s=4, c='green')
-            # Set axis limits and labels
-            ax.set_xlim(-5, 5)  # Set x-axis limit (adjust as needed)
-            ax.set_ylim(-5, 5)  # Set y-axis limit (adjust as needed)
-            ax.set_xlabel("X (meters)")
-            ax.set_ylabel("Y (meters)")
-            ax.set_title("Robot's Position and Yaw")
-            ax.legend()
-
-            # Redraw the plot
-            plt.draw()
-            plt.pause(0.1)  # Pause to update the plot``
-
+# generate patterns
 # def create_semicircle(center, radius, arc):
 
 def generate_lawnmower_pattern(width, height, strip_width, spacing):
@@ -239,111 +357,70 @@ def orbit_mode(center,radius,angle,increments):
     POSE = np.array([radius*np.cos(angles), radius*np.sin(angles), ]) + center[:,None]
     return POSE.T
 
-# Set of waypoints (x, y) in the global frame
-# waypoints = generate_lawnmower_pattern(4, 3, strip_width=.75, spacing=1)
-# waypoints = create_semicircle(np.array([0, 0]), radius=2, angle=np.pi/2, increments=10)
-
-# Initialize current position and yaw
-# current_position = {'x': 0.0, 'y': 0.0, 'yaw': 0.0}
-
-# Callback function to update the current position and yaw from /dvl/local_position
-def position_callback(msg):
-    global current_position
-
-    # Extract position (x, y) from the message
-    x = msg.pose.pose.position.x
-    y = msg.pose.pose.position.y
-
-    # Extract orientation (quaternion) and convert to Euler angles (roll, pitch, yaw)
-    q = msg.pose.pose.orientation
-    _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
-
-    # Update the global position and yaw
-    current_position['x'] = x
-    current_position['y'] = y
-    current_position['yaw'] = yaw
-
-    x_vals.append(x)
-    y_vals.append(y)
-    yaws.append(yaw)
-
-# Function to calculate control inputs based on P controller in the body frame
-def calculate_control(current_position, waypoint):
-    # Global errors (in global frame)
-    ex_g = waypoint[0] - current_position['x']
-    ey_g = waypoint[1] - current_position['y']
-    
-    # Transform errors to the body frame using the robot's yaw
-    ex = np.cos(current_position['yaw']) * ex_g + np.sin(current_position['yaw']) * ey_g
-    ey = -np.sin(current_position['yaw']) * ex_g + np.cos(current_position['yaw']) * ey_g
-    
-    # Yaw error: difference between current yaw and desired yaw
-    desired_yaw = np.arctan2(ey_g, ex_g)  # Desired yaw angle toward waypoint
-    yaw_error = desired_yaw - current_position['yaw']
-    # Normalize yaw error to [-pi, pi] range
-    if yaw_error > np.pi:
-        yaw_error -= 2 * np.pi
-    elif yaw_error < -np.pi:
-        yaw_error += 2 * np.pi
-
-    # Proportional control for position (x, y) and yaw
-    x_control = Kp_position * ex
-    y_control = Kp_position * ey
-    yaw_control = Kp_yaw * yaw_error
-
-    return x_control, y_control, yaw_control
-
-# Function to send control inputs to the robot (e.g., through MAVLink or a ROS topic)
-def send_control(x_control, y_control, yaw_control, master):
-    # Here we would send the control commands to the robot
-    # Example: using MAVLink RC Override
-    x_pwm = int(np.clip(1500+x_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
-    y_pwm = int(np.clip(1500+y_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
-    yaw_pwm = int(np.clip(1500+yaw_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
-    rospy.loginfo("Updated control: x=%.2f, y=%.2f, yaw=%.2f", x_pwm, y_pwm, yaw_pwm)
-    set_rc_channel_pwm(5, master, pwm=x_pwm)
-    set_rc_channel_pwm(6, master, pwm=y_pwm) #lateral control
-    set_rc_channel_pwm(4, master, pwm=yaw_pwm)
-
-# Function to check if the robot has reached the waypoint (within a tolerance)
-def reached_waypoint(current_position, waypoint, tolerance=0.2):
-    distance = np.sqrt((current_position['x'] - waypoint[0]) ** 2 + (current_position['y'] - waypoint[1]) ** 2)
-    return distance < tolerance
-
-# Thread for real-time visualization using Matplotlib
-def visualization_thread():
-    plt.ion()  # Enable interactive mode
-    plt.show()
-    while not visualization_stop_event.is_set():
-        plt.draw()
-        plt.pause(0.1)  # Update plot every 0.1 seconds
-
-def set_rc_channel_pwm(channel_id, master, pwm=1500):
-    """ Set RC channel pwm value
-    Args:
-        channel_id (TYPE): Channel ID
-        pwm (int, optional): Channel pwm value 1100-1900
-    """
-    if channel_id < 1 or channel_id > 18:
-        print("Channel does not exist.")
-        return
-
-    # Mavlink 2 supports up to 18 channels:
-    # https://mavlink.io/en/messages/common.html#RC_CHANNELS_OVERRIDE
-    rc_channel_values = [65535 for _ in range(18)]
-    rc_channel_values[channel_id - 1] = pwm
-    master.mav.rc_channels_override_send(
-        master.target_system,                # target_system
-        master.target_component,             # target_component
-        *rc_channel_values)                  # RC channel list, in microseconds.
-
+'''
 def listener():
+        # if controller.invoked == True:
+        if controller_on == True:   
+            rospy.loginfo_throttle(60,"Motion controller is enabled")
+
+            # update current waypoint every iteration and print current waypoint every 10 seconds
+            controller.get_current_waypoint()
+            # rospy.loginfo_throttle(10, "current waypoint: \n", controller.current_waypoint)
+
+            # calculate the new values to send
+            controller.calculate_control()
+
+            # # Check if we need to rotate to the correct heading first
+            # # If yaw control (heading) is significant, we focus on turning first
+            # if abs(controller.yaw_control) > 15.0:  # Threshold for turning (adjust as necessary)
+            #     # Prioritize turning to the correct heading
+            #     rospy.loginfo(f"Turning to heading. Current yaw error: {controller.yaw_control}")
+                
+            #     # send_control(0, 0, yaw_control, master)  # Only send yaw control (rotation)
+            # else:
+            #     # Once the heading is correct, translate towards the waypoint
+            #     rospy.loginfo(f"Yaw aligned. Translating towards waypoint.")
+            #     # send_control(x_control, y_control, 0, master)  # Only send translation control
+
+            controller.send_sim_control()
+
+            # if the wayppoint is reached increment waypoint index, should consider using .pop 
+            if controller.reached_waypoint():
+                try:
+                    if controller.waypoint_index < len(controller.waypoints.poses):
+                        rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}")
+                        controller.waypoint_index +=1
+                    
+                    else:
+                        rospy.loginfo("Holding postion and orientation at final waypoint") 
+                        # controller.invoked = False # temporary for testing turns off the motion controller once all goals are reached
+                except:
+                    rospy.loginfo("Holding postion and orientation at final waypoint") 
+                       
+        else:
+            # rospy.loginfo("controller_state: ", controller.invoked)
+            rospy.loginfo_throttle(30,"Motion controller is disabled") 
+            controller.x_control = 0
+            controller.y_control = 0
+            controller.z_control = 0
+            controller.roll_control = 0
+            controller.pitch_control = 0
+            controller.yaw_control = 0
+            controller.send_sim_control()
+
+
+        rospy.sleep(0.1)    
+    # Signal to stop the visualization thread and close the plot
+'''
+def main(): 
     # Initialize the ROS node
-    rospy.init_node('waypoint_follower', anonymous=True)
+    rospy.init_node('waypoint_follower') #, anonymous=True)
+
+    # initializing mavutil
+    '''
     master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
     # Wait a heartbeat before sending commands
     master.wait_heartbeat()
-    
 
     master.mav.command_long_send(
         master.target_system,
@@ -355,53 +432,68 @@ def listener():
     print("Waiting for the vehicle to arm")
     master.motors_armed_wait()
     print('Armed!')
-
-
-    # Subscribe to the local position topic
-    rospy.Subscriber('/dvl/local_position', PoseWithCovarianceStamped, position_callback)
-
-    # Start the real-time plotting in a separate thread
-    plot_thread = threading.Thread(target=update_plot)
-    plot_thread.daemon = True  # Make sure the thread exits when the main program exits
-    plot_thread.start()
-
-    # Start following the waypoints
-    current_waypoint_index = 0
+    '''
+    
+    # initialize motion controller
+    controller = MotionControl()
     while not rospy.is_shutdown():
-        waypoint = waypoints[current_waypoint_index]
+        # rospy.loginfo(controller.invoked)
+        if controller.invoked:
+            # rospy.loginfo("controller is on")
+            # update current waypoint every iteration and print current waypoint every 10 seconds
+            controller.get_current_waypoint()
+            # rospy.loginfo_throttle(10, "current waypoint: \n", controller.current_waypoint)
+
+            # calculate the new values to send
+            # controller.calculate_control()
+
+            # # Check if we need to rotate to the correct heading first
+            # # If yaw control (heading) is significant, we focus on turning first
+            # if abs(controller.yaw_control) > 15.0:  # Threshold for turning (adjust as necessary)
+            #     # Prioritize turning to the correct heading
+            #     rospy.loginfo(f"Turning to heading. Current yaw error: {controller.yaw_control}")
+                
+            #     # send_control(0, 0, yaw_control, master)  # Only send yaw control (rotation)
+            # else:
+            #     # Once the heading is correct, translate towards the waypoint
+            #     rospy.loginfo(f"Yaw aligned. Translating towards waypoint.")
+            #     # send_control(x_control, y_control, 0, master)  # Only send translation control
+            controller.x_control = 0.1
+            controller.send_sim_control()
+
+            # # if the wayppoint is reached increment waypoint index, should consider using .pop 
+            # if controller.reached_waypoint():
+            #     try:
+            #         if controller.waypoint_index < len(controller.waypoints.poses):
+            #             rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}")
+            #             controller.waypoint_index +=1
+                    
+            #         else:
+            #             # rospy.loginfo("Holding postion and orientation at final waypoint") 
+                        
+            #             controller.invoked = False # temporary for testing turns off the motion self once all goals are reached
+            #     except:
+            #         controller.invoked = False
+            #         rospy.loginfo("Holding postion and orientation at final waypoint") 
+                        
         
-        # Calculate control inputs to reach the current waypoint
-        x_control, y_control, yaw_control = calculate_control(current_position, waypoint)
-        
-        # Check if we need to rotate to the correct heading first
-        # If yaw control (heading) is significant, we focus on turning first
-        if abs(yaw_control) > 15.0:  # Threshold for turning (adjust as necessary)
-            # Prioritize turning to the correct heading
-            rospy.loginfo(f"Turning to heading. Current yaw error: {yaw_control}")
-            send_control(0, 0, yaw_control, master)  # Only send yaw control (rotation)
         else:
-            # Once the heading is correct, translate towards the waypoint
-            rospy.loginfo(f"Yaw aligned. Translating towards waypoint.")
-            send_control(x_control, y_control, 0, master)  # Only send translation control
+            # rospy.loginfo("controller is off")
 
-        # Check if the robot has reached the current waypoint
-        if reached_waypoint(current_position, waypoint, tolerance=0.2):
-            rospy.loginfo(f"Reached waypoint {current_waypoint_index + 1}: {waypoint}")
-            current_waypoint_index += 1
+            controller.invoked = False
+            # rospy.loginfo("controller_state: ", controller.invoked)
+            # rospy.loginfo_throttle(30,"Motion controller is disabled") 
+            # controller.x_control = 0
+            # controller.y_control = 0
+            # controller.z_control = 0
+            # controller.roll_control = 0
+            # controller.pitch_control = 0
+            # controller.yaw_control = 0
+            # controller.send_sim_control()
 
-            # If all waypoints are reached, stop the robot
-            if current_waypoint_index >= len(waypoints):
-                rospy.loginfo("All waypoints reached. Stopping.")
-                send_control(0, 0, 0, master)  # Stop the robot
-                break
 
-        # Wait for the next iteration
-        rospy.sleep(0.1)
+        rospy.sleep(0.1)    
 
-    # Signal to stop the visualization thread and close the plot
-# Ensure the plotting thread finishes
-
-def main(): 
-    listener()
+    
 if __name__ == "__main__":
     main()

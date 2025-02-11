@@ -2,7 +2,7 @@
 import rospy
 import numpy as np
 import matplotlib.pyplot as plt
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray
 from tf.transformations import euler_from_quaternion
 from mavros_msgs.msg import OverrideRCIn
 import time
