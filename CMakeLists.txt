@@ -9,6 +9,12 @@ project(blue_rov_motion_controller)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   rospy
+  geometry_msgs
+  roscpp
+  rospy
+  sensor_msgs
+  std_msgs
+  tf
 )
 
 ## System dependencies are found with CMake's conventions
@@ -202,3 +208,6 @@ include_directories(
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+catkin_install_python(PROGRAMS scripts/motion_controller_hardware.py scripts/motion_controller_v5.py scripts/motion_controller_v4.py scripts/motion_controller_v3.py scripts/motion_controller_v2.py scripts/motion_controller.py
+  DESTINATION $(CATKIN_PACKAGE_BIN_DESTINATION)
+)
