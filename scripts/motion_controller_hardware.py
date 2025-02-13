@@ -4,9 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped
 from tf.transformations import euler_from_quaternion
-# from mavros_msgs.msg import OverrideRCIn
+from mavros_msgs.msg import OverrideRCIn
 import time
-# from pymavlink import mavutil
+from pymavlink import mavutil
 import threading
 from std_msgs.msg import Bool
 
@@ -16,6 +16,7 @@ class MotionControl:
     def __init__(self):
         
         self.current_pose = PoseStamped()
+        # self.current_transform = 
         self.waypoints = PoseArray()
 
         self.current_waypoint = PoseStamped()
@@ -28,16 +29,32 @@ class MotionControl:
         self.yaws = []
 
         # P Controller Gains
-        self.Kp_position = 0.1 # Proportional gain for position control (x, y)
-        self.Kp_yaw = 0.1     # Proportional gain for yaw control
+        # x-y gains
+        self.Kp_xy = 0.8 # Proportional gain for position control (x, y)
+        self.Kd_xy = 0.1 # Derivative gain for position control (x, y)
+        
+        # z gains
+        self.Kp_z = 0.8 # Proportional gain for depth control z
+        self.Kd_z = 0.1 # Derivative gain for position control z
 
-        # errors ... might need to initialize as very large values
+        # yaw gains 
+        self.Kp_yaw = 0.8 #  Proportional gain for yaw control
+        self.Kd_yaw = 0.1 #  Proportional gain for yaw control
+
+        self.time = rospy.get_time()
+        # errors
         self.error_x = 0
         self.error_y = 0
         self.error_z = 0
         self.error_roll = 0
         self.error_pitch = 0
         self.error_yaw = 0
+
+        # Previous error values for derivative calculation
+        self.prev_error_x = 0.0
+        self.prev_error_y = 0.0
+        self.prev_error_z = 0.0
+        self.prev_error_yaw = 0.0
 
         # Control values
         self.x_control = 0
@@ -52,13 +69,17 @@ class MotionControl:
         self.velocity_command.header.frame_id = "base_link"  # Example frame id
 
         # reached waypoint threshold
-        self.tolerance = 0.2
+        self.position_threshold = 0.2
+        degrees_threshold = 3
+        self.yaw_threshold = degrees_threshold * np.pi / 180
+
         
         # turn on or off
         self.invoked = False
 
         self.frequency =10 
         self.rate = rospy.Rate(self.frequency)  # 10 Hz
+        self.dt = 1 /self.frequency
 
         # creating subscribers
         self.sub1 = rospy.Subscriber('motion_control_state',Bool, self.on_off_callback)
@@ -108,7 +129,7 @@ class MotionControl:
         self.waypoints = msg
 
     def get_current_waypoint(self):
-        #  accounts for the case where there is ponly 1 waypoint 
+        #  accounts for the case where there is only 1 waypoint 
         if self.num_waypoints == 1:
             self.waypoint_index = 0
             self.current_waypoint.header.frame_id = self.waypoints.header.frame_id
@@ -123,19 +144,21 @@ class MotionControl:
 
         # self.current_waypoint = self.get_current_waypoint()
         # map frame error calculations
-        # distance from waypoint (in map frame)
+        # distance from waypoint (in NED frame)
         self.error_x = self.current_waypoint.pose.position.x - self.current_pose.pose.position.x
         self.error_y = self.current_waypoint.pose.position.y - self.current_pose.pose.position.y
         self.error_z = self.current_waypoint.pose.position.z - self.current_pose.pose.position.z
+        
 
-
-        # in map frame
+        # in NED frame
         # get the current roll, pitch, yaw
         current_roll, current_pitch, current_yaw = euler_from_quaternion([self.current_pose.pose.orientation.x,self.current_pose.pose.orientation.y, self.current_pose.pose.orientation.z, self.current_pose.pose.orientation.w])
 
         # get the target roll, pitch, yaw 
         target_roll, target_pitch, target_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
 
+        # calculate the yaw error 
+        self.error_yaw = target_yaw - current_yaw
 
 
         # Transform the position errors to the body frame using the robot's yaw
@@ -143,25 +166,41 @@ class MotionControl:
         ey = -np.sin(current_yaw) * self.error_x  + np.cos(current_yaw) * self.error_y
         ez = self.error_z
 
-
-
-        # define the desired yaw as the yaw that will transform the x axis to point at the waypoint
-        desired_yaw = np.arctan2(self.error_y, self.error_x) 
-
-        # Yaw error: difference between current yaw and desired yaw
-        yaw_error = desired_yaw - current_yaw
-
         # Normalize yaw error to [-pi, pi] range
-        if yaw_error > np.pi:
-            yaw_error -= 2 * np.pi
-        elif yaw_error < -np.pi:
-            yaw_error += 2 * np.pi
+        if self.error_yaw > np.pi:
+            self.error_yaw -= 2 * np.pi
+        elif self.error_yaw < -np.pi:
+            self.error_yaw+= 2 * np.pi
+        
+        # get time step and start recording new time...feel like there is a better way
+        # self.dt = rospy.get_time() - self.time
+        # self.time = rospy.get_time()
 
-        # Proportional control for position (x, y) and yaw
-        self.x_control = self.Kp_position * ex
-        self.y_control = self.Kp_position * ey
-        self.z_control = self.Kp_position * ez
-        self.yaw_control = self.Kp_yaw * yaw_error
+        # Calculate derivatives of error
+        dedx = (ex - self.prev_error_x) / self.dt
+        dedy = (ey - self.prev_error_y) / self.dt
+        dedz = (ez - self.prev_error_z) / self.dt
+        dedyaw = (self.error_yaw - self.prev_error_yaw) / self.dt
+        
+
+        # Update previous errors
+        self.prev_error_x = ex
+        self.prev_error_y = ey
+        self.prev_error_z = ez
+        self.prev_error_yaw = self.error_yaw
+
+        # Proportional-Derivative control for position (x, y, z) and yaw
+        self.x_control = self.Kp_xy * ex + self.Kd_xy * dedx
+        self.y_control = self.Kp_xy * ey + self.Kd_xy * dedy
+        self.z_control = self.Kp_z * ez + self.Kd_z * dedz
+        self.yaw_control = self.Kp_yaw * self.error_yaw + self.Kd_yaw * dedyaw
+
+
+    
+        # if self.current_waypoint == 4:
+        # rospy.loginfo(f"Error in NED frame: x,y,yaw: {self.error_x}, {self.error_y}, {self.error_yaw}")
+        # rospy.loginfo(f"Error in Body frame: x,y,yaw: {ex}, {ey}, {self.error_yaw}")
+        # rospy.loginfo(f"control signal: x,y,yaw: {self.z_control}, {self.y_control}, {self.yaw_control}")
 
     def send_sim_control(self):
         # Populate the TwistStamped
@@ -183,9 +222,22 @@ class MotionControl:
         # Publish the message
         self.pub1.publish(self.velocity_command)
     
-    def reached_waypoint_position(self):
-        waypoint_distance = np.sqrt((self.current_pose.pose.position.x - self.current_waypoint.pose.position.x)**2 + (self.current_pose.pose.position.y - self.current_waypoint.pose.position.y)**2 + (self.current_pose.pose.position.z - self.current_waypoint.pose.position.z)**2)               
-        return waypoint_distance < self.tolerance
+    def reached_position(self):
+        waypoint_distance = np.linalg.norm((self.error_x, self.error_y, self.error_z))
+        # waypoint_distance = np.sqrt((self.current_pose.pose.position.x - self.current_waypoint.pose.position.x)**2 + (self.current_pose.pose.position.y - self.current_waypoint.pose.position.y)**2 + (self.current_pose.pose.position.z - self.current_waypoint.pose.position.z)**2)               
+        return waypoint_distance < self.position_threshold
+    
+    def reached_orientation(self):
+        waypoint_orientation_distance = self.error_yaw
+    
+        return waypoint_orientation_distance < self.yaw_threshold
+    
+    def reached_waypoint(self):
+        if self.reached_position() and self.reached_orientation():
+            return True
+        else:
+            return False
+
 '''
 # Function to send control inputs to the robot (e.g., through MAVLink or a ROS topic)
 def send_control(x_control, y_control, yaw_control, master):
@@ -247,6 +299,7 @@ def main():
     controller = MotionControl()
     
     while not rospy.is_shutdown():
+        # controller.time = rospy.get_time()
         
         if controller.invoked:
             rospy.loginfo_throttle(30,"controller is active")
@@ -262,13 +315,19 @@ def main():
             # send_control(controller.x_control, controller.y_control, controller.yaw_control, master):
               
 
-            if controller.reached_waypoint_position():
+            if controller.reached_waypoint():
                 if controller.waypoint_index < controller.num_waypoints-1:
-                    rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}")
+                    rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}: {controller.current_waypoint.pose.position.x}, {controller.current_waypoint.pose.position.y}, {controller.current_waypoint.pose.position.z}")
                     controller.waypoint_index +=1
+                    controller.get_current_waypoint()
+                    rospy.loginfo(f"Heading to waypoint {controller.waypoint_index +1}: {controller.current_waypoint.pose.position.x}, {controller.current_waypoint.pose.position.y}, {controller.current_waypoint.pose.position.z}")
                 else:
-                    rospy.loginfo(f"Reached the last waypoint, holding postion at waypoint {controller.waypoint_index +1}")
-                
+                    rospy.loginfo_throttle(15,f"Reached the last waypoint, holding postion at waypoint {controller.waypoint_index +1}")
+            
+            # if controller.current_waypoint == 4:
+            #     rospy.loginfo(f"error, x,y,yaw: {controller.error_x}, {controller.error_y}, {controller.error_yaw}")
+               
+
 
         elif controller.invoked == False:
             # rospy.loginfo("controller is turned off")
