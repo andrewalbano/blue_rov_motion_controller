@@ -2,13 +2,13 @@
 import rospy
 import numpy as np
 import matplotlib.pyplot as plt
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose
 from tf.transformations import euler_from_quaternion
 # from mavros_msgs.msg import OverrideRCIn
-import time
+# import time
 # from pymavlink import mavutil
-import threading
-from std_msgs.msg import Bool
+# import threading
+from std_msgs.msg import Bool, Int8
 
 CONTROL_CLIP = (1400, 1600)
 
@@ -77,6 +77,9 @@ class MotionControl:
         # turn on or off
         self.invoked = False
 
+        self.hold_pose = False
+        self.hold_pose_waypoint = Pose()
+        
         self.frequency =10 
         self.rate = rospy.Rate(self.frequency)  # 10 Hz
         self.dt = 1 /self.frequency
@@ -85,6 +88,9 @@ class MotionControl:
         self.sub1 = rospy.Subscriber('motion_control_state',Bool, self.on_off_callback)
         self.sub2 = rospy.Subscriber('/dvl/local_position', PoseWithCovarianceStamped, self.position_callback)
         self.sub3 = rospy.Subscriber('target_waypoints_list', PoseArray, self.waypoint_list_callback)
+        self.sub4 = rospy.Subscriber('wapoint_index_reset', Int8, self.waypoint_index_callback)
+        self.sub5 = rospy.Subscriber('hold_pose', Bool, self.hold_pose_callback)
+        self.sub6 = rospy.Subscriber('hold_pose_waypoint', PoseStamped, self.hold_pose_waypoint_callback)
 
         # creating publishers
         self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
@@ -97,12 +103,17 @@ class MotionControl:
         elif not self.invoked:
             rospy.loginfo("Motion controller deactivated")
 
-        # if self.invoked:
-        #     self.invoked = False
-        #     rospy.loginfo("Motion controller turned off")
-        # elif self.invoked == False:
-        #     rospy.loginfo("Motion controller turned on")
-        #     self.invoked = True      
+    def waypoint_index_callback(self,msg:Int8):
+        self.waypoint_index = msg.data
+        rospy.loginfo(f"Waypoint index reset to waypoint {self.waypoint_index+1}")
+    
+    def hold_pose_waypoint_callback(self,msg:PoseStamped):
+        self.hold_pose_waypoint = msg.pose
+
+    def hold_pose_callback(self,msg:Bool):
+        self.hold_pose = msg.data
+        # rospy.loginfo(f"Waypoint index reset to waypoint {self.waypoint_index+1}")
+
 
     def position_callback(self, msg:PoseWithCovarianceStamped):
 
@@ -305,7 +316,11 @@ def main():
             rospy.loginfo_throttle(30,"controller is active")
             # rospy.loginfo("controller is turned on")
             # rospy.loginfo("The current z position is:\n " + str(controller.current_pose.pose.position.z)) 
-            controller.get_current_waypoint()
+            if controller.hold_pose:
+                controller.current_waypoint.pose = controller.hold_pose_waypoint
+            else:
+                controller.get_current_waypoint()
+
             # rospy.loginfo("The current z waypoint position is:\n " + str(controller.current_waypoint.pose.position.z)) 
             controller.calculate_control()
             # rospy.loginfo("The current x control is:\n " + str(controller.x_control)) 
@@ -313,9 +328,9 @@ def main():
 
             # use this for hardware
             # send_control(controller.x_control, controller.y_control, controller.yaw_control, master):
-              
-
-            if controller.reached_waypoint():
+            if controller.hold_pose:
+                rospy.loginfo_throttle(15,f"Holding postion")
+            elif controller.reached_waypoint():
                 if controller.waypoint_index < controller.num_waypoints-1:
                     rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}: {controller.current_waypoint.pose.position.x}, {controller.current_waypoint.pose.position.y}, {controller.current_waypoint.pose.position.z}")
                     controller.waypoint_index +=1

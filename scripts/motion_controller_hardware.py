@@ -2,33 +2,45 @@
 import rospy
 import numpy as np
 import matplotlib.pyplot as plt
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose
 from tf.transformations import euler_from_quaternion
 from mavros_msgs.msg import OverrideRCIn
-import time
 from pymavlink import mavutil
-import threading
-from std_msgs.msg import Bool
-
-CONTROL_CLIP = (1400, 1600)
+from std_msgs.msg import Bool, Int8
 
 class MotionControl:
-    def __init__(self):
+    def __init__(self): 
+        #  if used for simulating set to true, if used for hardware set to false
+        self.sim = True 
+
+        # turn contrlller on and off, off just sends control when simulaing = 0
+        self.invoked = False
+
+        # control clip
+        self.control_clip = (1400, 1600)    
+
+        # rates and frequencies
+        self.frequency =10 
+        self.rate = rospy.Rate(self.frequency)  # 10 Hz
+        self.dt = 1 /self.frequency
+
+
+        # current pose 
+        self.current_pose = PoseStamped() # stores the current pose
+
+        # for holding a pose between waypoints basically like hitting pause 
+        self.hold_pose = False
+        self.hold_pose_waypoint = Pose()
         
-        self.current_pose = PoseStamped()
-        # self.current_transform = 
-        self.waypoints = PoseArray()
+        
+        # waypoint management 
+        self.waypoints = PoseArray()    # stores the list of waypoints
+        self.current_waypoint = PoseStamped()   # stores the current waypoint
+        self.waypoint_index = 0     # stores the index of the current waypoint
+        self.num_waypoints = 0  # srores the number of waypoints
 
-        self.current_waypoint = PoseStamped()
-        self.waypoint_index = 0 
-        self.num_waypoints = 0
 
-        # for plotting
-        self.x_vals = []
-        self.y_vals = []
-        self.yaws = []
-
-        # P Controller Gains
+        #Controllers gains
         # x-y gains
         self.Kp_xy = 0.8 # Proportional gain for position control (x, y)
         self.Kd_xy = 0.1 # Derivative gain for position control (x, y)
@@ -41,8 +53,10 @@ class MotionControl:
         self.Kp_yaw = 0.8 #  Proportional gain for yaw control
         self.Kd_yaw = 0.1 #  Proportional gain for yaw control
 
-        self.time = rospy.get_time()
-        # errors
+
+
+        # Error management 
+        # Error from waypoint - current pose for each degree of freedom
         self.error_x = 0
         self.error_y = 0
         self.error_z = 0
@@ -56,7 +70,9 @@ class MotionControl:
         self.prev_error_z = 0.0
         self.prev_error_yaw = 0.0
 
-        # Control values
+
+    
+        # Desired velocity from calculate_control
         self.x_control = 0
         self.y_control = 0
         self.z_control = 0
@@ -64,29 +80,37 @@ class MotionControl:
         self.pitch_control = 0
         self.yaw_control = 0
 
-        # Simulated Control values
-        self.velocity_command = TwistStamped()
-        self.velocity_command.header.frame_id = "base_link"  # Example frame id
+        # pwm setpoint
+        self.x_pwm = 0
+        self.y_pwm = 0
+        self.z_pwm = 0
+        self.yaw_pwm = 0
+        self.roll_pwm = 0
+        self.pitch_pwm = 0
 
-        # reached waypoint threshold
+
+        # Waypoint Thresholds
         self.position_threshold = 0.2
         degrees_threshold = 3
         self.yaw_threshold = degrees_threshold * np.pi / 180
+    
 
-        
-        # turn on or off
-        self.invoked = False
 
-        self.frequency =10 
-        self.rate = rospy.Rate(self.frequency)  # 10 Hz
-        self.dt = 1 /self.frequency
+        # Simulated Control values used in the kinematic simulation only 
+        self.velocity_command = TwistStamped()
+        self.velocity_command.header.frame_id = "base_link"  # Example frame id
+
+
 
         # creating subscribers
         self.sub1 = rospy.Subscriber('motion_control_state',Bool, self.on_off_callback)
         self.sub2 = rospy.Subscriber('/dvl/local_position', PoseWithCovarianceStamped, self.position_callback)
         self.sub3 = rospy.Subscriber('target_waypoints_list', PoseArray, self.waypoint_list_callback)
+        self.sub4 = rospy.Subscriber('wapoint_index_reset', Int8, self.waypoint_index_callback)
+        self.sub5 = rospy.Subscriber('hold_pose', Bool, self.hold_pose_callback)
+        self.sub6 = rospy.Subscriber('hold_pose_waypoint', PoseStamped, self.hold_pose_waypoint_callback)
 
-        # creating publishers
+        # creating publishers, for the simulation
         self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
 
     # whenever the button is hit, toggle the controller on/off
@@ -97,12 +121,17 @@ class MotionControl:
         elif not self.invoked:
             rospy.loginfo("Motion controller deactivated")
 
-        # if self.invoked:
-        #     self.invoked = False
-        #     rospy.loginfo("Motion controller turned off")
-        # elif self.invoked == False:
-        #     rospy.loginfo("Motion controller turned on")
-        #     self.invoked = True      
+    def waypoint_index_callback(self,msg:Int8):
+        self.waypoint_index = msg.data
+        rospy.loginfo(f"Waypoint index reset to waypoint {self.waypoint_index+1}")
+    
+    def hold_pose_waypoint_callback(self,msg:PoseStamped):
+        self.hold_pose_waypoint = msg.pose
+
+    def hold_pose_callback(self,msg:Bool):
+        self.hold_pose = msg.data
+        # rospy.loginfo(f"Waypoint index reset to waypoint {self.waypoint_index+1}")
+
 
     def position_callback(self, msg:PoseWithCovarianceStamped):
 
@@ -140,6 +169,7 @@ class MotionControl:
 
         return self.current_waypoint
 
+    # desired velocity output
     def calculate_control(self): # default to first waypoint
 
         # self.current_waypoint = self.get_current_waypoint()
@@ -202,6 +232,7 @@ class MotionControl:
         # rospy.loginfo(f"Error in Body frame: x,y,yaw: {ex}, {ey}, {self.error_yaw}")
         # rospy.loginfo(f"control signal: x,y,yaw: {self.z_control}, {self.y_control}, {self.yaw_control}")
 
+    # used for my simulation
     def send_sim_control(self):
         # Populate the TwistStamped
         if self.invoked:
@@ -222,9 +253,14 @@ class MotionControl:
         # Publish the message
         self.pub1.publish(self.velocity_command)
     
+    def set_pwm(self):
+        self.x_pwm = int(np.clip(1500+self.x_control, self.control_clip[0],  self.control_clip[1]))
+        self.y_pwm = int(np.clip(1500+self.y_control, self.control_clip[0],  self.control_clip[1]))
+        self.yaw_pwm = int(np.clip(1500+self.yaw_control, self.control_clip[0],  self.control_clip[1]))
+        rospy.loginfo("Updated control: x=%.2f, y=%.2f, yaw=%.2f", self.x_pwm, self.y_pwm, self.yaw_pwm)
+
     def reached_position(self):
         waypoint_distance = np.linalg.norm((self.error_x, self.error_y, self.error_z))
-        # waypoint_distance = np.sqrt((self.current_pose.pose.position.x - self.current_waypoint.pose.position.x)**2 + (self.current_pose.pose.position.y - self.current_waypoint.pose.position.y)**2 + (self.current_pose.pose.position.z - self.current_waypoint.pose.position.z)**2)               
         return waypoint_distance < self.position_threshold
     
     def reached_orientation(self):
@@ -238,17 +274,12 @@ class MotionControl:
         else:
             return False
 
-'''
+
 # Function to send control inputs to the robot (e.g., through MAVLink or a ROS topic)
-def send_control(x_control, y_control, yaw_control, master):
-    # Here we would send the control commands to the robot
-    # Example: using MAVLink RC Override
-    x_pwm = int(np.clip(1500+x_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
-    y_pwm = int(np.clip(1500+y_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
-    yaw_pwm = int(np.clip(1500+yaw_control, CONTROL_CLIP[0], CONTROL_CLIP[1]))
-    rospy.loginfo("Updated control: x=%.2f, y=%.2f, yaw=%.2f", x_pwm, y_pwm, yaw_pwm)
+def send_control(x_pwm, y_pwm, z_pwm, yaw_pwm, master):
     set_rc_channel_pwm(5, master, pwm=x_pwm)
     set_rc_channel_pwm(6, master, pwm=y_pwm) #lateral control
+    # set_rc_channel_pwm(4, master, pwm= zip_pwm) need to see which channel is for z control
     set_rc_channel_pwm(4, master, pwm=yaw_pwm)
 
 
@@ -270,14 +301,14 @@ def set_rc_channel_pwm(channel_id, master, pwm=1500):
         master.target_system,                # target_system
         master.target_component,             # target_component
         *rc_channel_values)                  # RC channel list, in microseconds.
-'''
+
 
 def main(): 
     # Initialize the ROS node
     rospy.init_node('waypoint_follower')
 
     '''
-    rospy.init_node('waypoint_follower', anonymous=True)
+    # rospy.init_node('waypoint_follower', anonymous=True)
     master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
     # Wait a heartbeat before sending commands
     master.wait_heartbeat()
@@ -290,32 +321,36 @@ def main():
         0,
         1, 0, 0, 0, 0, 0, 0)
 
-    print("Waiting for the vehicle to arm")
+    rospy.loginfo("Waiting for the vehicle to arm")
     master.motors_armed_wait()
-    print('Armed!')
+    rospy.loginfo('Armed!')
     '''
 
     # initialize motion controller
     controller = MotionControl()
     
     while not rospy.is_shutdown():
-        # controller.time = rospy.get_time()
         
         if controller.invoked:
             rospy.loginfo_throttle(30,"controller is active")
-            # rospy.loginfo("controller is turned on")
-            # rospy.loginfo("The current z position is:\n " + str(controller.current_pose.pose.position.z)) 
-            controller.get_current_waypoint()
-            # rospy.loginfo("The current z waypoint position is:\n " + str(controller.current_waypoint.pose.position.z)) 
+           
+            if controller.hold_pose:
+                controller.current_waypoint.pose = controller.hold_pose_waypoint
+            else:
+                controller.get_current_waypoint()
+
+        
             controller.calculate_control()
-            # rospy.loginfo("The current x control is:\n " + str(controller.x_control)) 
-            controller.send_sim_control()  
+            
+            if controller.sim: 
+                controller.send_sim_control() 
+            else:
+                controller.set_pwm()
+                send_control(controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm, master)
 
-            # use this for hardware
-            # send_control(controller.x_control, controller.y_control, controller.yaw_control, master):
-              
-
-            if controller.reached_waypoint():
+            if controller.hold_pose:
+                rospy.loginfo_throttle(15,f"Holding postion")
+            elif controller.reached_waypoint():
                 if controller.waypoint_index < controller.num_waypoints-1:
                     rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}: {controller.current_waypoint.pose.position.x}, {controller.current_waypoint.pose.position.y}, {controller.current_waypoint.pose.position.z}")
                     controller.waypoint_index +=1
@@ -323,29 +358,18 @@ def main():
                     rospy.loginfo(f"Heading to waypoint {controller.waypoint_index +1}: {controller.current_waypoint.pose.position.x}, {controller.current_waypoint.pose.position.y}, {controller.current_waypoint.pose.position.z}")
                 else:
                     rospy.loginfo_throttle(15,f"Reached the last waypoint, holding postion at waypoint {controller.waypoint_index +1}")
-            
-            # if controller.current_waypoint == 4:
-            #     rospy.loginfo(f"error, x,y,yaw: {controller.error_x}, {controller.error_y}, {controller.error_yaw}")
-               
 
 
-        elif controller.invoked == False:
-            # rospy.loginfo("controller is turned off")
-            rospy.loginfo_throttle(30,"controller is inactive")
+        elif not controller.invoked:
+            rospy.loginfo_throttle(30,"controller is  disabled")
+
             controller.invoked = False
-            controller.send_sim_control()
+            if controller.sim:
+                controller.send_sim_control() # sends 0 velocity if simulating
             
-            
-            # use this for hardware
-            # controller.x_control = 0.0
-            # controller.y_control = 0.0
-            # controller.z_control = 0.0
-            # controller.roll_control = 0.0
-            # controller.pitch_control = 0.0
-            # controller.yaw_control = 0.0
-            # send_control(controller.x_control, controller.y_control, controller.yaw_control, master):
+        
         else:
-            rospy.loginfo("controller is weird")
+            rospy.logwarn_throttle(10,"controller is in an unexpectated state")
 
         rospy.sleep(0.1)    
 
