@@ -15,6 +15,10 @@ class MotionControl:
         self.sitl = False
         self.hardware = False
 
+        self.algorithm = 1 #whcih control loop to use 
+
+            
+
         # turn contrlller on and off, off just sends control when simulaing = 0
         self.invoked = False
 
@@ -33,6 +37,7 @@ class MotionControl:
         self.current_pose = PoseStamped() # stores the current pose
         self.last_pose = PoseStamped() # stores the last pose
 
+        self.current_velocity =TwistStamped() #store the current velocity
 
         # for holding a pose between waypoints basically like hitting pause 
         self.hold_pose = False
@@ -124,6 +129,9 @@ class MotionControl:
         # Simulated Control values used in the kinematic simulation only 
         self.velocity_command = TwistStamped()
         self.velocity_command.header.frame_id = "base_link"  # Example frame id
+        
+        self.current_velocity = TwistStamped()
+        self.velocity_command.header.frame_id = "base_link"  # Example frame id
 
 
 
@@ -135,8 +143,9 @@ class MotionControl:
         self.sub5 = rospy.Subscriber('hold_pose', Bool, self.hold_pose_callback)
         self.sub6 = rospy.Subscriber('hold_pose_waypoint', PoseStamped, self.hold_pose_waypoint_callback)
         self.sub7 = rospy.Subscriber('controller_gains', Float32MultiArray, self.controller_gains_callback)
+        self.sub8 = rospy.Subscriber('sitl_current_velocity', TwistStamped, self.velocity_callback)
 
-        # creating publishers, for the simulation
+        # creating publishers, for the RViz only simulation
         self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
 
     # whenever the button is hit, toggle the controller on/off
@@ -186,6 +195,9 @@ class MotionControl:
         q = msg.pose.pose.orientation
         roll, pitch, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
+    def velocity_callback(self, msg:TwistStamped):
+        self.current_velocity = msg
+
     def waypoint_list_callback(self, msg:PoseArray):
         # checks if it is a list and get how many waypoint
         if isinstance(msg.poses, list):
@@ -214,6 +226,8 @@ class MotionControl:
 
     def calculate_control(self): 
         
+        # THE POSITION CONTROLLER
+
         # Calculating errors in NED FRAME
         # distance from waypoint (in NED FRAME)
         self.error_x = self.current_waypoint.pose.position.x - self.current_pose.pose.position.x
@@ -285,6 +299,26 @@ class MotionControl:
         self.y_control = self.Kp_xy * ey + self.Kd_xy * dedy + self.Ki_xy * sum_ey
         self.z_control = self.Kp_z * self.error_z + self.Kd_z * self.dedz + self.Ki_z * self.sum_error_z
         self.yaw_control = self.Kp_yaw * self.error_yaw + self.Kd_yaw * self.dedyaw + self.Ki_yaw * self.sum_error_yaw
+
+
+        if self.algorithm ==2:
+            # Velocity Controller
+            vx_error = self.x_control - self.current_velocity.twist.linear.x 
+            vy_error = self.y_control - self.current_velocity.twist.linear.y
+            vz_error = self.z_control - self.current_velocity.twist.linear.z 
+            vyaw_error = self.yaw_control - self.current_velocity.twist.angular.z 
+
+
+            kp_v_xy = 50
+            kp_v_z = 50
+            kp_v_yaw = 50
+    
+            self.x_control = kp_v_xy*vx_error
+            self.y_control = kp_v_xy*vy_error
+            self.z_control = kp_v_z*vz_error
+            self.yaw_control = kp_v_yaw*vyaw_error
+
+
          
 
 
@@ -310,11 +344,19 @@ class MotionControl:
         self.pub1.publish(self.velocity_command)
     
     def set_pwm(self):
+        if self.algorithm ==1:
 
-        self.x_pwm = int(np.clip(1500+self.x_control, self.control_clip[0],  self.control_clip[1]))
-        self.y_pwm = int(np.clip(1500+self.y_control, self.control_clip[0],  self.control_clip[1]))
-        self.z_pwm = int(np.clip(1500+self.z_control, self.control_clip[0],  self.control_clip[1]))
-        self.yaw_pwm = int(np.clip(1500+self.yaw_control, self.control_clip[0],  self.control_clip[1]))
+            self.x_pwm = int(np.clip(1500+self.x_control, self.control_clip[0],  self.control_clip[1]))
+            self.y_pwm = int(np.clip(1500+self.y_control, self.control_clip[0],  self.control_clip[1]))
+            self.z_pwm = int(np.clip(1500+self.z_control, self.control_clip[0],  self.control_clip[1]))
+            self.yaw_pwm = int(np.clip(1500+self.yaw_control, self.control_clip[0],  self.control_clip[1]))
+
+        if self.algorithm ==2:
+
+            self.x_pwm = int(np.clip(1500+self.x_control, self.vx_control_clip[0],  self.vx_control_clip[1]))
+            self.y_pwm = int(np.clip(1500+self.y_control, self.vx_control_clip[0],  self.vx_control_clip[1]))
+            self.z_pwm = int(np.clip(1500+self.z_control, self.vx_control_clip[0],  self.vx_control_clip[1]))
+            self.yaw_pwm = int(np.clip(1500+self.yaw_control, self.vx_control_clip[0], self.vx_control_clip[1]))
 
 
     def reached_position(self):
@@ -334,64 +376,149 @@ class MotionControl:
 
     def set_test_mode(self, mode):
         # rviz only
-        if mode == "rviz": 
-            self.rviz_sim = True
-            self.sitl = False
-            self.hardware = False
-            # x-y gains
-            self.Kp_xy = 0.8 # Proportional gain for position control (x, y)
-            self.Kd_xy = 0.1 # Derivative gain for position control (x, y)
-            self.Ki_xy = 0 # Integral gain for position control (x, y)
+        if self.algorithm ==1:
+            if mode == "rviz": 
+                self.rviz_sim = True
+                self.sitl = False
+                self.hardware = False
+                # x-y gains
+                self.Kp_xy = 0.8 # Proportional gain for position control (x, y)
+                self.Kd_xy = 0.1 # Derivative gain for position control (x, y)
+                self.Ki_xy = 0 # Integral gain for position control (x, y)
 
-            # z gains
-            self.Kp_z = 0.8 # Proportional gain for depth control z
-            self.Kd_z = 0.1 # Derivative gain for position control z
-            self.Ki_z = 0 # Integral gain for position control z
+                # z gains
+                self.Kp_z = 0.8 # Proportional gain for depth control z
+                self.Kd_z = 0.1 # Derivative gain for position control z
+                self.Ki_z = 0 # Integral gain for position control z
 
-            # yaw gains 
-            self.Kp_yaw = 0.8 #  Proportional gain for yaw control
-            self.Kd_yaw = 0.1 #  Proportional gain for yaw control
-            self.Ki_yaw = 0 # Integral gain for yaw control
+                # yaw gains 
+                self.Kp_yaw = 0.8 #  Proportional gain for yaw control
+                self.Kd_yaw = 0.1 #  Proportional gain for yaw control
+                self.Ki_yaw = 0 # Integral gain for yaw control
 
 
-        elif mode == "sitl": 
-            self.rviz_sim = False
-            self.sitl = True
-            self.hardware = False
-            # x-y gains
-            self.Kp_xy = 10 # Proportional gain for position control (x, y)
-            self.Kd_xy = 0 # Derivative gain for position control (x, y)
-            self.Ki_xy = 0 # Integral gain for position control (x, y)
+            elif mode == "sitl": 
+                self.rviz_sim = False
+                self.sitl = True
+                self.hardware = False
+                # x-y gains
+                self.Kp_xy = 10 # Proportional gain for position control (x, y)
+                self.Kd_xy = 0 # Derivative gain for position control (x, y)
+                self.Ki_xy = 0 # Integral gain for position control (x, y)
 
-            # z gains
-            self.Kp_z = 10 # Proportional gain for depth control z
-            self.Kd_z = 0 # Derivative gain for position control z
-            self.Ki_z = 0 # Integral gain for position control z
+                # z gains
+                self.Kp_z = 10 # Proportional gain for depth control z
+                self.Kd_z = 0 # Derivative gain for position control z
+                self.Ki_z = 0 # Integral gain for position control z
 
-            # yaw gains 
-            self.Kp_yaw = 10 #  Proportional gain for yaw control
-            self.Kd_yaw = 0 #  Proportional gain for yaw control
-            self.Ki_yaw = 0 # Integral gain for yaw control
+                # yaw gains 
+                self.Kp_yaw = 10 #  Proportional gain for yaw control
+                self.Kd_yaw = 0 #  Proportional gain for yaw control
+                self.Ki_yaw = 0 # Integral gain for yaw control
 
-        elif mode == "hardware":
-            self.rviz_sim = False 
-            self.sitl = False
-            self.hardware = True
+                # control clip
+                self.control_clip = (1200, 1800)    
+                self.upper_control_clip = (1550, 1800)    
+                self.lower_control_clip = (1100, 1450)
+                self.anti_windup_clip = [0,500]
 
-            # x-y gains
-            self.Kp_xy = 10 # Proportional gain for position control (x, y)
-            self.Kd_xy = 0 # Derivative gain for position control (x, y)
-            self.Ki_xy = 0 # Integral gain for position control (x, y)
+            elif mode == "hardware":
+                self.rviz_sim = False 
+                self.sitl = False
+                self.hardware = True
 
-            # z gains
-            self.Kp_z = 10 # Proportional gain for depth control z
-            self.Kd_z = 0 # Derivative gain for position control z
-            self.Ki_z = 0 # Integral gain for position control z
+                # x-y gains
+                self.Kp_xy = 10 # Proportional gain for position control (x, y)
+                self.Kd_xy = 0 # Derivative gain for position control (x, y)
+                self.Ki_xy = 0 # Integral gain for position control (x, y)
 
-            # yaw gains 
-            self.Kp_yaw = 10 #  Proportional gain for yaw control
-            self.Kd_yaw = 0 #  Proportional gain for yaw control
-            self.Ki_yaw = 0 # Integral gain for yaw control
+                # z gains
+                self.Kp_z = 10 # Proportional gain for depth control z
+                self.Kd_z = 0 # Derivative gain for position control z
+                self.Ki_z = 0 # Integral gain for position control z
+
+                # yaw gains 
+                self.Kp_yaw = 10 #  Proportional gain for yaw control
+                self.Kd_yaw = 0 #  Proportional gain for yaw control
+                self.Ki_yaw = 0 # Integral gain for yaw control
+
+                # control clip
+                self.control_clip = (1200, 1800)    
+                self.upper_control_clip = (1550, 1800)    
+                self.lower_control_clip = (1100, 1450)   
+                self.anti_windup_clip = [0,500] 
+
+        
+        elif self.algorithm ==2:
+            if mode == "rviz": 
+                self.rviz_sim = True
+                self.sitl = False
+                self.hardware = False
+                # x-y gains
+                self.Kp_xy = 0.8 # Proportional gain for position control (x, y)
+                self.Kd_xy = 0.1 # Derivative gain for position control (x, y)
+                self.Ki_xy = 0 # Integral gain for position control (x, y)
+
+                # z gains
+                self.Kp_z = 0.8 # Proportional gain for depth control z
+                self.Kd_z = 0.1 # Derivative gain for position control z
+                self.Ki_z = 0 # Integral gain for position control z
+
+                # yaw gains 
+                self.Kp_yaw = 0.8 #  Proportional gain for yaw control
+                self.Kd_yaw = 0.1 #  Proportional gain for yaw control
+                self.Ki_yaw = 0 # Integral gain for yaw control
+
+
+            elif mode == "sitl": 
+                self.rviz_sim = False
+                self.sitl = True
+                self.hardware = False
+                # x-y gains
+                self.Kp_xy = 5 # Proportional gain for position control (x, y)
+                self.Kd_xy = 0 # Derivative gain for position control (x, y)
+                self.Ki_xy = 0 # Integral gain for position control (x, y)
+
+                # z gains
+                self.Kp_z = 0 # Proportional gain for depth control z
+                self.Kd_z = 0 # Derivative gain for position control z
+                self.Ki_z = 0 # Integral gain for position control z
+
+                # yaw gains 
+                self.Kp_yaw = 5 #  Proportional gain for yaw control
+                self.Kd_yaw = 0 #  Proportional gain for yaw control
+                self.Ki_yaw = 0 # Integral gain for yaw control
+                # control clip
+                self.control_clip = (-2, 2)  
+                self.vx_control_clip = (1200,1800)  
+                self.upper_control_clip = (1550, 1800)    
+                self.lower_control_clip = (1100, 1450)   
+                self.anti_windup_clip = [0,500] 
+
+            elif mode == "hardware":
+                self.rviz_sim = False 
+                self.sitl = False
+                self.hardware = True
+
+                # x-y gains
+                self.Kp_xy = 10 # Proportional gain for position control (x, y)
+                self.Kd_xy = 0 # Derivative gain for position control (x, y)
+                self.Ki_xy = 0 # Integral gain for position control (x, y)
+
+                # z gains
+                self.Kp_z = 10 # Proportional gain for depth control z
+                self.Kd_z = 0 # Derivative gain for position control z
+                self.Ki_z = 0 # Integral gain for position control z
+
+                # yaw gains 
+                self.Kp_yaw = 10 #  Proportional gain for yaw control
+                self.Kd_yaw = 0 #  Proportional gain for yaw control
+                self.Ki_yaw = 0 # Integral gain for yaw control
+                # control clip
+                self.control_clip = (1200, 1800)    
+                self.upper_control_clip = (1550, 1800)    
+                self.lower_control_clip = (1100, 1450)   
+                self.anti_windup_clip = [0,500] 
             
     def calculate_integral(self,a,b,h, method="trapezoidal"):
         # a = previous error
@@ -456,6 +583,8 @@ def main():
     # initialize motion controller
     controller = MotionControl()
 
+    controller.algorithm = 2
+
     # if mode = rviz use kinematic_sim.launch
     controller.set_test_mode(mode="sitl")   
 
@@ -492,23 +621,31 @@ def main():
                 controller.get_current_waypoint()
                 
 
-        
+            
             controller.calculate_control()
+
+
             if controller.sitl or controller.hardware:
+
+            
                 controller.set_pwm()
-        
+    
                 send_control(controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm, master)
                 # rospy.loginfo_throttle(5, "current x,y,z,yaw: {controller.current_pose.pose.position.x}, {controller.current_pose.pose.position.y}, {controller.current_pose.pose.position.z}, {controller.current_pose.pose.orientation.z}")
-                rospy.loginfo_throttle(2,f"current waypoint position: {controller.current_waypoint.pose.position}")
+                rospy.loginfo_throttle(2,f"current waypoint position:\n {controller.current_waypoint.pose.position}")
 
                 rospy.loginfo_throttle(2, 
                                         f"current x,y,z: {controller.current_pose.pose.position.x:.2f}, "
                                         f"{controller.current_pose.pose.position.y:.2f}, "
-                      
+                    
                                         f"{controller.current_pose.pose.position.z:.2f}")
-                      
+                    
                 rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
 
+                rospy.loginfo_throttle(2,"Velocity: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.current_velocity.twist.linear.x, controller.current_velocity.twist.linear.y, controller.current_velocity.twist.linear.z, controller.current_velocity.twist.angular.z) 
+
+    
+                    
             elif controller.rviz_sim: 
                 controller.send_sim_control() 
 
