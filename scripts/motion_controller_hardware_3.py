@@ -2,7 +2,7 @@
 import rospy
 import numpy as np
 # import matplotlib.pyplot as plt
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose, Twist
 from tf.transformations import euler_from_quaternion
 from mavros_msgs.msg import OverrideRCIn
 from pymavlink import mavutil
@@ -82,6 +82,14 @@ class MotionControl:
         self.z_pwm = 0
         self.yaw_pwm = 0
        
+        self.pwm_setpoint = Twist()
+        self.pwm_setpoint.linear.x = 0
+        self.pwm_setpoint.linear.y = 0
+        self.pwm_setpoint.linear.z = 0
+        self.pwm_setpoint.angular.x = 0
+        self.pwm_setpoint.angular.y = 0
+        self.pwm_setpoint.angular.z = 0
+        
    
         # POSITION CONTROLLER
       
@@ -327,6 +335,9 @@ class MotionControl:
 
         # creating publishers, for the RViz only simulation
         self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
+         
+        self.pub2 = rospy.Publisher('velocity_controller_setpoint', TwistStamped, queue_size=10)
+        self.pub3 = rospy.Publisher('pwm_controller_setpoint', Twist, queue_size=10)
 
     # whenever the button is hit, toggle the controller on/off
     def on_off_callback(self,msg:Bool):
@@ -761,17 +772,43 @@ class MotionControl:
         self.z_pwm = int(np.clip(1500+self.z_control, 1200,1800))# self.vx_control_clip[0],  self.vx_control_clip[1]))
         self.yaw_pwm = int(np.clip(1500+self.yaw_control, 1200,1800))#self.vx_control_clip[0], self.vx_control_clip[1]))
 
+    def publish_velocity_setpoints(self):
+         if self.invoked:
+            self.velocity_command.twist.linear.x = self.vx_setpoint
+            self.velocity_command.twist.linear.y = self.vy_setpoint
+            self.velocity_command.twist.linear.z = self.vx_setpoint
+            self.velocity_command.twist.angular.x= 0
+            self.velocity_command.twist.angular.y = 0
+            self.velocity_command.twist.angular.z = self.vyaw_setpoint
+
+            self.pub2.publish(self.velocity_command)
+
+    def publish_pwm_commands(self):
+        self.pwm_setpoint.linear.x = self.x_pwm
+        self.pwm_setpoint.linear.y = self.y_pwm
+        self.pwm_setpoint.linear.z = self.z_pwm
+        self.pwm_setpoint.angular.x = 0
+        self.pwm_setpoint.angular.y = 0
+        self.pwm_setpoint.angular.z = self.yaw_pwm
+        self.pub3.publish(self.pwm_setpoint)
 
     # used for my RViz only simulation mode
     def send_sim_control(self):
         # Populate the TwistStamped
         if self.invoked:
-            self.velocity_command.twist.linear.x = self.x_control  
-            self.velocity_command.twist.linear.y = self.y_control  
-            self.velocity_command.twist.linear.z = self.z_control 
-            self.velocity_command.twist.angular.x= self.roll_control
-            self.velocity_command.twist.angular.y =self.pitch_control
-            self.velocity_command.twist.angular.z =self.yaw_control  
+            # self.velocity_command.twist.linear.x = self.x_control  
+            # self.velocity_command.twist.linear.y = self.y_control  
+            # self.velocity_command.twist.linear.z = self.z_control 
+            # self.velocity_command.twist.angular.x= self.roll_control
+            # self.velocity_command.twist.angular.y =self.pitch_control
+            # self.velocity_command.twist.angular.z =self.yaw_control
+            
+            self.velocity_command.twist.linear.x = self.vx_setpoint
+            self.velocity_command.twist.linear.y = self.vy_setpoint
+            self.velocity_command.twist.linear.z = self.vx_setpoint
+            self.velocity_command.twist.angular.x= 0
+            self.velocity_command.twist.angular.y = 0
+            self.velocity_command.twist.angular.z = self.vyaw_setpoint
         else:
             self.velocity_command.twist.linear.x = 0
             self.velocity_command.twist.linear.y = 0  
@@ -1082,6 +1119,10 @@ def main():
                 # controller.set_pwm()
     
                 send_control(controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm, master)
+
+                # stores the commands
+                controller.publish_velocity_setpoints()
+                controller.publish_pwm_commands()
             
                 rospy.loginfo_throttle(5, 
                                         f"current x,y,z: {controller.current_pose.pose.position.x:.2f}, "
