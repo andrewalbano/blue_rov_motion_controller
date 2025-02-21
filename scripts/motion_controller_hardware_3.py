@@ -265,8 +265,8 @@ class MotionControl:
 
             # saturation 
             self.velocity_anti_windup_clip = [0,1000]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
-            self.linear_velocity_clip = [-2,2] #min and max velocity setpoints
-            self.angular_velocity_clip = [-2,2] # min and max angular velocity setpoints
+            self.linear_velocity_clip = [-0.2,0.2] #min and max velocity setpoints
+            self.angular_velocity_clip = [-10*np.pi/180, 10*np.pi/180] # min and max angular velocity setpoints
 
             #  pwm gains
             # xy
@@ -285,9 +285,9 @@ class MotionControl:
             self.ki_v_yaw = 0
 
             # saturation 
-            self.pwm_anti_windup_clip = [0,100]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
-            self.linear_pwm_clip = [1200, 1800] #min and max pwm setpoints
-            self.angular_pwm_clip = [1200, 1800] # min and max angular velocity setpoints
+            self.pwm_anti_windup_clip = [0,500]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
+            self.linear_pwm_clip = [1300, 1700] #min and max pwm setpoints
+            self.angular_pwm_clip = [1300, 1700] # min and max angular velocity setpoints
 
 
 
@@ -545,10 +545,15 @@ class MotionControl:
         self.z_control = self.kp_v_z *vz_error
         self.yaw_control = self.kp_v_yaw* vyaw_error
 
-        self.x_pwm = int(np.clip(1500+self.x_control, 1200,1800))
-        self.y_pwm = int(np.clip(1500+self.y_control, 1200,1800)) #self.vx_control_clip[0],  self.vx_control_clip[1]))
-        self.z_pwm = int(np.clip(1500+self.z_control, 1200,1800))# self.vx_control_clip[0],  self.vx_control_clip[1]))
-        self.yaw_pwm = int(np.clip(1500+self.yaw_control, 1200,1800))#self.vx_control_clip[0], self.vx_control_clip[1]))
+        self.x_pwm = int(np.clip(1500+self.x_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1]))
+        self.y_pwm = int(np.clip(1500+self.y_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1])) #1200,1800)) #self.vx_control_clip[0],  self.vx_control_clip[1]))
+        self.z_pwm = int(np.clip(1500+self.z_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1]))#1200,1800))# self.vx_control_clip[0],  self.vx_control_clip[1]))
+        self.yaw_pwm = int(np.clip(1500+self.yaw_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1]))# 1200,1800))#self.vx_control_clip[0], self.vx_control_clip[1]))
+        
+        # self.x_pwm = int(np.clip(1500+self.x_control, 1200,1800))
+        # self.y_pwm = int(np.clip(1500+self.y_control, 1200,1800)) #self.vx_control_clip[0],  self.vx_control_clip[1]))
+        # self.z_pwm = int(np.clip(1500+self.z_control, 1200,1800))# self.vx_control_clip[0],  self.vx_control_clip[1]))
+        # self.yaw_pwm = int(np.clip(1500+self.yaw_control, 1200,1800))#self.vx_control_clip[0], self.vx_control_clip[1]))
         
 
         # # calculate velocity errors
