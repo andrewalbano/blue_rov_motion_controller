@@ -49,8 +49,7 @@ class MotionControl:
         self.current_pose = PoseStamped() # stores the current pose
         self.last_pose = PoseStamped() # stores the last pose
 
-        self.current_velocity =TwistStamped() #store the current velocity
-
+    
         # for holding a pose between waypoints basically like hitting pause 
         self.hold_pose = False
         self.hold_pose_waypoint = Pose()
@@ -313,6 +312,21 @@ class MotionControl:
         ########################
 
 
+        if self.hardware:
+            self.current_velocity =Twist() #store the current velocity
+            self.velocity_command = Twist()
+            self.pwm_setpoint = Twist()
+
+        else:
+            self.current_velocity =TwistStamped() #store the current velocity
+
+            # Simulated Control values used in the kinematic simulation only 
+            self.velocity_command = TwistStamped()
+            self.velocity_command.header.frame_id = "base_link"  # Example frame id
+            
+            self.current_velocity = TwistStamped()
+            self.velocity_command.header.frame_id = "base_link"  # Example frame id
+
 
         # Simulated Control values used in the kinematic simulation only 
         self.velocity_command = TwistStamped()
@@ -331,12 +345,12 @@ class MotionControl:
         self.sub5 = rospy.Subscriber('hold_pose', Bool, self.hold_pose_callback)
         self.sub6 = rospy.Subscriber('hold_pose_waypoint', PoseStamped, self.hold_pose_waypoint_callback)
         self.sub7 = rospy.Subscriber('controller_gains', Float32MultiArray, self.controller_gains_callback)
-        self.sub8 = rospy.Subscriber('sitl_current_velocity', TwistStamped, self.velocity_callback)
-
+        # self.sub8 = rospy.Subscriber('sitl_current_velocity', TwistStamped, self.velocity_callback)
+        self.sub8 = rospy.Subscriber('/dvl/twist', Twist, self.velocity_callback)
         # creating publishers, for the RViz only simulation
-        self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
+        # self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
          
-        self.pub2 = rospy.Publisher('velocity_controller_setpoint', TwistStamped, queue_size=10)
+        self.pub2 = rospy.Publisher('velocity_controller_setpoint', Twist, queue_size=10)
         self.pub3 = rospy.Publisher('pwm_controller_setpoint', Twist, queue_size=10)
 
     # whenever the button is hit, toggle the controller on/off
@@ -432,9 +446,12 @@ class MotionControl:
         q = msg.pose.pose.orientation
         roll, pitch, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-    def velocity_callback(self, msg:TwistStamped):
-        self.current_velocity = msg
+    # def velocity_callback(self, msg:TwistStamped):
+    #     self.current_velocity = msg
 
+    def velocity_callback(self, msg:Twist):
+        self.current_velocity = msg
+        
     def waypoint_list_callback(self, msg:PoseArray):
         # checks if it is a list and get how many waypoint
         if isinstance(msg.poses, list):
