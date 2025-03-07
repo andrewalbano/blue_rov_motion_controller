@@ -11,66 +11,62 @@ from std_msgs.msg import Bool, Int8, Float32MultiArray
 class MotionControl:
     def __init__(self,mode = "sitl"): 
 
-        if mode == "sitl": 
-            #  initializing settings
-            self.rviz_sim = False
-            self.sitl = True
-            self.hardware = False
+        # column vector of position and orientation in the ned frame  
+        self.pose = None
+        # column vector of forces and moments applied to the vehicle
+        self.tau = None
+        # column vector of body-fixed velocities 
+        self.v = None
+        # inertia matrix with added mass coefficients according to Table A1 of An Open-Source Benchmark Simulator: Control of a BlueROV2 Underwater Robot 
+        self.inertia_matrix = np.eye(6)
+        self.coriolis_matrix = np.eye(6) 
+        self.damping_matrix = np.eye(6)
+
+        # Params  from  Table A1 of An Open-Source Benchmark Simulator: Control of a BlueROV2 Underwater Robot 
+        # inertia terms  kg / m^2
+        self.Ix = 0.26
+        self.Iy = 0.23
+        self.Iz = 0.37
+        # mass kg
+        self.mass = 13.5
+
+        # Added mass coefficients Ns/m
+        self.added_mass_X = 13.7
+        self.added_mass_Y = 0
+        self.added_mass_Z = 33
+        # Added mass coefficients Ns
+        self.added_mass_K = 0
+        self.added_mass_M = 0.8
+        self.added_mass_N = 0
+
+        # Added mass coefficients N s^2/m^2
+        self.added_mass_X_mag= 141
+        self.added_mass_Y_mag= 217
+        self.added_mass_Z_mag= 190
+        # Added mass coefficients N s^2/m^2
+        self.added_mass_K_mag= 1.19
+        self.added_mass_M_mag= 0.47
+        self.added_mass_N_mag= 1.5
 
 
-            # POSITION CONTROLLER
-            # x-y gains
-            self.Kp_x = 0.5
-            self.Kd_x = 0 
-            self.Ki_x = 0.2
+        # Added mass coefficients kg
+        self.added_mass_X_dot= 6.36
+        self.added_mass_Y_dot= 7.12
+        self.added_mass_Z_dot= 18.68
+        # Added mass coefficients kg m^2
+        self.added_mass_K_dot= 0.189
+        self.added_mass_M_dot= 0.135
+        self.added_mass_N_dot= 0.222
 
-            self.Kp_y = 0.2
-            self.Kd_y = 0 
-            self.Ki_y = 0.2
 
 
-            # z gains
-            self.Kp_z = 0.5
-            self.Kd_z = 0 
-            self.Ki_z = 0 
 
-            # yaw gains 
-            self.Kp_yaw = 0.5
-            
-            self.Kd_yaw = 0 
-            self.Ki_yaw = 0 
+ 
+      
 
-            # saturation 
-            self.velocity_anti_windup_clip = [0,1000]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
-            self.linear_velocity_clip = [-2,2] #min and max velocity setpoints
-            self.angular_velocity_clip = [-2,2] # min and max angular velocity setpoints
+        # coordinate transform matrix
 
-            #  pwm gains
-            # xy
-            self.kp_v_x = 100
-            self.kd_v_x = 0
-            self.ki_v_x = 0
-
-            self.kp_v_y = 100
-            self.kd_v_y = 0
-            self.ki_v_y = 0
-
-            # z gains
-            self.kp_v_z = 50
-            self.kd_v_z = 0
-            self.ki_v_z = 0
-
-            # yaw
-            self.kp_v_yaw = 50
-            self.kd_v_yaw = 0
-            self.ki_v_yaw = 0
-
-            # saturation 
-            self.pwm_anti_windup_clip = [0,500]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
-            self.linear_pwm_clip = [1200, 1800] #min and max pwm setpoints
-            self.angular_pwm_clip = [1200, 1800] # min and max angular velocity setpoints
-
-        elif mode == "hardware": 
+        if mode == "hardware": 
             self.rviz_sim = False
             self.sitl = False
             self.hardware = True
@@ -169,7 +165,7 @@ class MotionControl:
         self.num_waypoints = 0  # stores the number of waypoints
 
         # Waypoint Thresholds
-        self.position_threshold = 0.2   
+        self.position_threshold = 0.5   
         degrees_threshold = 5
         self.yaw_threshold = degrees_threshold * np.pi / 180
 
@@ -307,6 +303,11 @@ class MotionControl:
         self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=10)
         self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=10)
 
+
+
+
+
+
     # whenever the button is hit, toggle the controller on/off
     def on_off_callback(self,msg:Bool):
         self.invoked = msg.data
@@ -416,14 +417,16 @@ class MotionControl:
        
         # Extract orientation (quaternion) and convert to Euler angles (roll, pitch, yaw)
         q = msg.pose.pose.orientation
-        self.current_roll,self.current_pitch,self.current_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        self.current_roll,self.current_pitch,self.current_yaw = euler_from_quaternion([msg.pose.pose.orientation.x,msg.pose.pose.orientation.y,msg.pose.pose.orientation.z,msg.pose.pose.orientation.w])
 
-        # self.attitude_transform = np.array(euler_matrix(self.current_roll,self.current_pitch,self.current_yaw))[:3,:3]
-        # rospy.loginfo(self.attitude_transform.shape)
+        self.pose = np.array([msg.pose.pose.position.x,msg.pose.pose.position.y, msg.pose.pose.position.z,self.current_roll,self.current_pitch, self.current_yaw]).reshape(-1,1)
 
 
     def velocity_callback(self, msg:Twist):
         self.current_velocity = msg
+        self.v = np.array([msg.linear.x, msg.linear.y, msg.linear.z, msg.angular.x,msg.angular.y,msg.angular.z]).reshape(-1,1)
+
+
         
     def waypoint_list_callback(self, msg:PoseArray):
         # checks if it is a list and get how many waypoint
@@ -986,19 +989,6 @@ class MotionControl:
         # Publish the message
         self.pub1.publish(self.velocity_command)
     
-    '''
-    def set_pwm(self):
-        if self.algorithm ==1:
-
-
-
-        if self.algorithm ==2:
-
-            self.x_pwm = int(np.clip(1500+self.x_control, self.vx_control_clip[0],  self.vx_control_clip[1]))
-            self.y_pwm = int(np.clip(1500+self.y_control, self.vx_control_clip[0],  self.vx_control_clip[1]))
-            self.z_pwm = int(np.clip(1500+self.z_control, self.vx_control_clip[0],  self.vx_control_clip[1]))
-            self.yaw_pwm = int(np.clip(1500+self.yaw_control, self.vx_control_clip[0], self.vx_control_clip[1]))
-    '''
 
     def reached_position(self):
         waypoint_distance = np.linalg.norm((self.error_x, self.error_y, self.error_z))
@@ -1027,153 +1017,7 @@ class MotionControl:
             return True
         else:
             return False
-
-    def set_test_mode(self, mode):
-        # rviz only
-        if self.algorithm ==1:
-            if mode == "rviz": 
-                self.rviz_sim = True
-                self.sitl = False
-                self.hardware = False
-                # x-y gains
-                self.Kp_xy = 0.8 # Proportional gain for position control (x, y)
-                self.Kd_xy = 0.1 # Derivative gain for position control (x, y)
-                self.Ki_xy = 0 # Integral gain for position control (x, y)
-
-                # z gains
-                self.Kp_z = 0.8 # Proportional gain for depth control z
-                self.Kd_z = 0.1 # Derivative gain for position control z
-                self.Ki_z = 0 # Integral gain for position control z
-
-                # yaw gains 
-                self.Kp_yaw = 0.8 #  Proportional gain for yaw control
-                self.Kd_yaw = 0.1 #  Proportional gain for yaw control
-                self.Ki_yaw = 0 # Integral gain for yaw control
-
-
-            elif mode == "sitl": 
-                self.rviz_sim = False
-                self.sitl = True
-                self.hardware = False
-                # x-y gains
-                self.Kp_xy = 10 # Proportional gain for position control (x, y)
-                self.Kd_xy = 0 # Derivative gain for position control (x, y)
-                self.Ki_xy = 0 # Integral gain for position control (x, y)
-
-                # z gains
-                self.Kp_z = 10 # Proportional gain for depth control z
-                self.Kd_z = 0 # Derivative gain for position control z
-                self.Ki_z = 0 # Integral gain for position control z
-
-                # yaw gains 
-                self.Kp_yaw = 10 #  Proportional gain for yaw control
-                self.Kd_yaw = 0 #  Proportional gain for yaw control
-                self.Ki_yaw = 0 # Integral gain for yaw control
-
-                # control clip
-                self.control_clip = (1200, 1800)    
-                self.upper_control_clip = (1550, 1800)    
-                self.lower_control_clip = (1100, 1450)
-                self.velocity_anti_windup_clip = [0,500] 
-
-            elif mode == "hardware":
-                self.rviz_sim = False 
-                self.sitl = False
-                self.hardware = True
-
-                # x-y gains
-                self.Kp_xy = 10 # Proportional gain for position control (x, y)
-                self.Kd_xy = 0 # Derivative gain for position control (x, y)
-                self.Ki_xy = 0 # Integral gain for position control (x, y)
-
-                # z gains
-                self.Kp_z = 10 # Proportional gain for depth control z
-                self.Kd_z = 0 # Derivative gain for position control z
-                self.Ki_z = 0 # Integral gain for position control z
-
-                # yaw gains 
-                self.Kp_yaw = 10 #  Proportional gain for yaw control
-                self.Kd_yaw = 0 #  Proportional gain for yaw control
-                self.Ki_yaw = 0 # Integral gain for yaw control
-
-                # control clip
-                self.control_clip = (1200, 1800)    
-                self.upper_control_clip = (1550, 1800)    
-                self.lower_control_clip = (1100, 1450)   
-                self.velocity_anti_windup_clip = [0,500] 
-
-        
-        elif self.algorithm ==2:
-            if mode == "rviz": 
-                self.rviz_sim = True
-                self.sitl = False
-                self.hardware = False
-                # x-y gains
-                self.Kp_xy = 0.8 # Proportional gain for position control (x, y)
-                self.Kd_xy = 0.1 # Derivative gain for position control (x, y)
-                self.Ki_xy = 0 # Integral gain for position control (x, y)
-
-                # z gains
-                self.Kp_z = 0.8 # Proportional gain for depth control z
-                self.Kd_z = 0.1 # Derivative gain for position control z
-                self.Ki_z = 0 # Integral gain for position control z
-
-                # yaw gains 
-                self.Kp_yaw = 0.8 #  Proportional gain for yaw control
-                self.Kd_yaw = 0.1 #  Proportional gain for yaw control
-                self.Ki_yaw = 0 # Integral gain for yaw control
-
-
-            elif mode == "sitl": 
-                self.rviz_sim = False
-                self.sitl = True
-                self.hardware = False
-                # x-y gains
-                self.Kp_xy = 5 # Proportional gain for position control (x, y)
-                self.Kd_xy = 0 # Derivative gain for position control (x, y)
-                self.Ki_xy = 0 # Integral gain for position control (x, y)
-
-                # z gains
-                self.Kp_z = 0 # Proportional gain for depth control z
-                self.Kd_z = 0 # Derivative gain for position control z
-                self.Ki_z = 0 # Integral gain for position control z
-
-                # yaw gains 
-                self.Kp_yaw = 5 #  Proportional gain for yaw control
-                self.Kd_yaw = 0 #  Proportional gain for yaw control
-                self.Ki_yaw = 0 # Integral gain for yaw control
-                # control clip
-                self.control_clip = (-2, 2)  
-                self.vx_control_clip = (1200,1800)  
-                self.upper_control_clip = (1550, 1800)    
-                self.lower_control_clip = (1100, 1450)   
-                self.velocity_anti_windup_clip = [0,500] 
-
-            elif mode == "hardware":
-                self.rviz_sim = False 
-                self.sitl = False
-                self.hardware = True
-
-                # x-y gains
-                self.Kp_xy = 10 # Proportional gain for position control (x, y)
-                self.Kd_xy = 0 # Derivative gain for position control (x, y)
-                self.Ki_xy = 0 # Integral gain for position control (x, y)
-
-                # z gains
-                self.Kp_z = 10 # Proportional gain for depth control z
-                self.Kd_z = 0 # Derivative gain for position control z
-                self.Ki_z = 0 # Integral gain for position control z
-
-                # yaw gains 
-                self.Kp_yaw = 10 #  Proportional gain for yaw control
-                self.Kd_yaw = 0 #  Proportional gain for yaw control
-                self.Ki_yaw = 0 # Integral gain for yaw control
-                # control clip
-                self.control_clip = (1200, 1800)    
-                self.upper_control_clip = (1550, 1800)    
-                self.lower_control_clip = (1100, 1450)   
-                self.velocity_anti_windup_clip = [0,500] 
-            
+ 
     def calculate_integral(self,a,b,h, method="trapezoidal"):
         # a = previous error
         # b = current error
@@ -1371,6 +1215,76 @@ class MotionControl:
                 # self.vz_setpoint = np.clip(self.vz_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
                 # self.vyaw_setpoint = np.clip(self.vyaw_setpoint, self.angular_velocity_clip[0],self.angular_velocity_clip[1])
 
+    def coordinate_transform_matrix(self):  
+        # Equation 3 of An Open-Source Benchmark Simulator: Control of a BlueROV2 Underwater Robot 
+        # note: is not defined when pitch ={−𝜋,𝜋}[2𝜋].
+        R1= np.array(euler_matrix(self.pose[3],self.pose[4],self.pose[5]))[:3,:3] 
+        zeros = np.zeros((3,3))
+
+        R2 = np.array([
+            [1,np.sin(self.pose[3])*np.tan(self.pose[4]),np.cos(self.pose[3])*np.tan(self.pose[4])],
+            [0,np.cos(self.pose[3]),-1*np.sin(self.pose[3])],
+            [0, np.sin(self.pose[3])/np.cos(self.pose[4]),np.cos(self.pose[3])/np.cos(self.pose[4])]
+            ])
+                    
+        self.coordinate_transform_matrix = np.block([
+            [R1,zeros],
+            [zeros, R2]
+            ])
+        
+    def create_inertia_matrix(self):
+        # Equation 6 of An Open-Source Benchmark Simulator: Control of a BlueROV2 Underwater Robot 
+        # The constant, symmetric and strictly positive definite inertia matrix 𝑴=𝑴𝑅𝐵+𝑴𝐴 combines the rigid-body inertia matrix 𝑴𝑅𝐵 with with 𝑰𝑐=𝑑𝑖𝑎𝑔{𝐼𝑥,𝐼𝑦,𝐼𝑧}, and the added-mass and inertia matrix, which we assume to be diagonal containing the added-mass coefficients,
+        Ic = np.diag(self.Ix,self.Iy,self.Iz)
+        zeros = np.zeros((3,3))
+        M_rb = np.block([
+            [self.mass*np.eye(3), zeros],
+            [zeros, Ic]
+        ])
+        M_a = -1*np.diag(self.added_mass_X_dot, self.added_mass_Y_dot,self.added_mass_Z_dot, self.added_mass_K_dot,self.added_mass_M_dot,self.added_mass_N_dot)
+
+        self.inertia_matrix = M_rb+M_a 
+
+    def create_coriolis_matrix(self):
+        zeros = np.zeros((3,3))
+
+        mat1 = self.mass*self.create_skew_symmetric_matrix(self.v[:3])
+        mat2 = self.create_skew_symmetric_matrix(np.multiply(np.array([[self.Ix,self.Iy,-1*self.Iz]]),self.v[3:])[0])
+
+        C_rb = np.block([
+            [zeros,mat1],
+            [mat1, mat2]
+        ])
+
+        mat1 = -1* self.create_skew_symmetric_matrix(np.multiply(np.array([[self.added_mass_X_dot, self.added_mass_Y_dot, self.added_mass_Z_dot]]),self.v[:3])[0])
+        mat2 = -1* self.create_skew_symmetric_matrix(np.multiply(np.array([[self.added_mass_K_dot, self.added_mass_M_dot, self.added_mass_N_dot]]),self.v[3:])[0])
+
+
+
+        C_a = np.block([
+            [zeros,mat1],
+            [mat1, mat2]
+        ])
+        self.coriolis_matrix =C_rb + C_a
+
+    def create_damping_matrix(self):
+            D = -1*np.diag(self.added_mass_X, self.added_mass_Y,self.added_mass_Z, self.added_mass_K,self.added_mass_M,self.added_mass_N)
+            D_n = -1*np.diag(self.added_mass_X_mag*self.v[0]**2, self.added_mass_Y_mag*self.v[1]**2,self.added_mass_Z_mag*self.v[2]**2, self.added_mass_K_mag*self.v[3]**2,self.added_mass_M_mag*self.v[4]**2,self.added_mass_N_mag*self.v[5]**2)
+
+            self.damping_matrix = D + D_n
+  
+    def x_smc():
+        
+        
+
+
+    def create_skew_symmetric_matrix(v):
+        M = np.array([
+            [0,v[2],-1*v[1]],
+            [-v[2],0,v[0]],
+            [v[1],-1*v[0],0]
+        ])
+        return M
 
 
 

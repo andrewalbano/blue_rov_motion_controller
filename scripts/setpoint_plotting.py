@@ -19,14 +19,25 @@ class Visualiser:
 
 
         # self.fig, (self.ax1,self.ax2,self.ax3,self.ax4) = plt.subplots(2)
-        self.fig, (self.ax1,self.ax2) = plt.subplots(2)
-
-        self.ln, = self.ax1.plot([], [], 'r')
-        self.ln1, = self.ax1.plot([], [], 'b')
-
-        self.ln2, = self.ax2.plot([], [], 'b')
+        self.fig, (self.ax1,self.ax2, self.ax3, self.ax4 ,self.ax5) = plt.subplots(5)
 
 
+        self.ln1, = self.ax1.plot([], [], 'r', label='x velocity')
+        self.ln2, = self.ax1.plot([], [], 'b', label='x setpoint velocity')
+
+        self.ln3, = self.ax2.plot([], [], 'r',label='y velocity')
+        self.ln4, = self.ax2.plot([], [], 'b',label='y setpoint velocity')
+
+        self.ln5, = self.ax3.plot([], [], 'r',label='z velocity')
+        self.ln6, = self.ax3.plot([], [], 'b',label='z setpoint velocity')
+        
+        self.ln7, = self.ax4.plot([], [], 'r',label='angular velocity')
+        self.ln8, = self.ax4.plot([], [], 'b',label='angular setpoint velocity')
+
+        self.ln9, = self.ax5.plot([], [], 'r', label='x pwm')
+        self.ln10, = self.ax5.plot([], [], 'b', label='y pwm')
+        self.ln11, = self.ax5.plot([], [], 'g', label='z pwm')
+        self.ln12, = self.ax5.plot([], [], 'k', label='yaw pwm')
 
         self.vx_data = [] 
         self.vy_data = [] 
@@ -55,18 +66,34 @@ class Visualiser:
 
 
     def plot_init(self):
+
+        self.fig.tight_layout()
+        self.ax1.set_title("x velocity")
         self.ax1.set_xlim(0, 100)
         self.ax1.set_ylim(-10, 10)
+        self.ax1.legend(handles=[self.ln1,self.ln2])
 
+        self.ax2.set_title("y velocity")
         self.ax2.set_xlim(0, 100)
         self.ax2.set_ylim(-10, 10)
+        self.ax2.legend(handles=[self.ln3,self.ln4])
 
-        # self.ax3.set_xlim(0, 100)
-        # self.ax3.set_ylim(-10, 10)
+        self.ax3.set_title("z velocity")
+        self.ax3.set_xlim(0, 100)
+        self.ax3.set_ylim(-10, 10)
+        self.ax3.legend(handles=[self.ln5,self.ln6])
 
-        # self.ax4.set_xlim(0, 100)
-        # self.ax4.set_ylim(-10, 10)
-        return self.ln
+        self.ax4.set_title("angular velocity")
+        self.ax4.set_xlim(0, 100)
+        self.ax4.set_ylim(-10, 10)
+        self.ax4.legend(handles=[self.ln7,self.ln8])
+
+
+        self.ax5.set_title("pwm signals")
+        self.ax5.set_xlim(0, 100)
+        self.ax5.set_ylim(1000,2000)
+        self.ax5.legend(handles=[self.ln9,self.ln10, self.ln11,self.ln12])
+        # return self.ln1
     
     
     def getYaw(self, pose):
@@ -109,6 +136,9 @@ class Visualiser:
         self.vy_setpoint_data.append(msg.linear.y)
         self.vz_setpoint_data.append(msg.linear.z)
         self.vyaw_setpoint_data.append(msg.angular.z)
+        # rospy.loginfo(msg.linear.z)
+
+
 
         cur_time = time.time()-self.start_time
         self.v_setpoint_time.append(cur_time)
@@ -119,18 +149,40 @@ class Visualiser:
     
     def update_plot(self, frame):
         # if len(self.v_setpoint_time)>10:
-        self.ln.set_data(self.v_time, self.vx_data)
-        self.ln1.set_data(self.v_setpoint_time, self.vx_setpoint_data)
-        self.ln2.set_data(self.pwm_time, self.x_pwm)
+        self.ln1.set_data(self.v_time, self.vx_data)
+        self.ln2.set_data(self.v_setpoint_time, self.vx_setpoint_data)
+
+        self.ln3.set_data(self.v_time, self.vy_data)
+        self.ln4.set_data(self.v_setpoint_time, self.vy_setpoint_data)
+
+        self.ln5.set_data(self.v_time, self.vz_data)
+        self.ln6.set_data(self.v_setpoint_time, self.vz_setpoint_data)
+
+        self.ln7.set_data(self.v_time, self.vyaw_data)
+        self.ln8.set_data(self.v_setpoint_time, self.vyaw_setpoint_data)
+
+        self.ln9.set_data(self.pwm_time, self.x_pwm)
+        self.ln10.set_data(self.pwm_time, self.y_pwm)
+        self.ln11.set_data(self.pwm_time, self.z_pwm)
+        self.ln12.set_data(self.pwm_time, self.yaw_pwm)
+
+
+
     
         if len(self.pwm_time)>10:
             if self.sliding_window:
-                minx = max(self.v_setpoint_time)-15                           
+                minx = max(self.v_setpoint_time)-30                           
             else:
                 minx = 0
 
+            # x limits
             self.ax1.set_xlim(minx, max(self.v_setpoint_time)+10)
+            self.ax2.set_xlim(minx, max(self.v_setpoint_time)+10)
+            self.ax3.set_xlim(minx, max(self.v_setpoint_time)+10)
+            self.ax4.set_xlim(minx, max(self.v_setpoint_time)+10)
+            self.ax5.set_xlim(minx, max(self.v_setpoint_time)+10)
                         
+            # y limits
             miny_1= min(self.vx_data)
             miny_2= min(self.vx_setpoint_data)
             miny = min(miny_1, miny_2)
@@ -138,19 +190,41 @@ class Visualiser:
             maxy_2= max(self.vx_setpoint_data)
             maxy = max(maxy_1, maxy_2)
             self.ax1.set_ylim(miny-0.5,maxy+0.5)
-
                             
 
-            self.ax2.set_xlim(minx, max(self.v_setpoint_time)+10)
+            miny_1= min(self.vy_data)
+            miny_2= min(self.vy_setpoint_data)
+            miny = min(miny_1, miny_2)
+            maxy_1= max(self.vy_data)
+            maxy_2= max(self.vy_setpoint_data)
+            maxy = max(maxy_1, maxy_2)
+            self.ax2.set_ylim(miny-0.5,maxy+0.5)
 
-            # miny_2= min(self.x_pwm_data)
-            miny = min(self.x_pwm)
-            maxy = max(self.x_pwm)
-            self.ax2.set_ylim(min(self.x_pwm)-25,maxy+25)
+            miny_1= min(self.vz_data)
+            miny_2= min(self.vz_setpoint_data)
+            miny = min(miny_1, miny_2)
+            maxy_1= max(self.vz_data)
+            maxy_2= max(self.vz_setpoint_data)
+            maxy = max(maxy_1, maxy_2)
+            self.ax3.set_ylim(miny-0.5,maxy+0.5)
+
+            miny_1= min(self.vyaw_data)
+            miny_2= min(self.vyaw_setpoint_data)
+            miny = min(miny_1, miny_2)
+            maxy_1= max(self.vyaw_data)
+            maxy_2= max(self.vyaw_setpoint_data)
+            maxy = max(maxy_1, maxy_2)
+            self.ax4.set_ylim(miny-0.5,maxy+0.5)
+
+          
+
+            # miny = min(self.x_pwm,self.y_pwm,self.z_pwm, self.yaw_pwm)
+            # maxy = max(self.x_pwm,self.y_pwm,self.z_pwm, self.yaw_pwm)
+            self.ax5.set_ylim(1000,2000)
 
 
             
-        return self.ln, self.ln1, self.ln2
+        # return self.ln1, self.ln2, self.ln3, self.ln4, self.ln5, self.ln6
 
 
 rospy.init_node('velocity_plot')
