@@ -78,3 +78,4 @@ coriolis_matrix()
 
 # print(R2)
         
+print(np.arctan2(1,1))

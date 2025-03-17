@@ -6,7 +6,8 @@ from nav_msgs.msg import Odometry
 from tf.transformations import quaternion_matrix
 import numpy as np
 from matplotlib.animation import FuncAnimation
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose, Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose, Twist, Point
+
 import time 
 
 
@@ -19,7 +20,7 @@ class Visualiser:
 
 
         # self.fig, (self.ax1,self.ax2,self.ax3,self.ax4) = plt.subplots(2)
-        self.fig, (self.ax1,self.ax2, self.ax3, self.ax4 ,self.ax5) = plt.subplots(5)
+        self.fig, (self.ax1,self.ax2, self.ax3, self.ax4 ,self.ax5,self.ax6) = plt.subplots(6)
 
 
         self.ln1, = self.ax1.plot([], [], 'r', label='x velocity')
@@ -38,6 +39,13 @@ class Visualiser:
         self.ln10, = self.ax5.plot([], [], 'b', label='y pwm')
         self.ln11, = self.ax5.plot([], [], 'g', label='z pwm')
         self.ln12, = self.ax5.plot([], [], 'k', label='yaw pwm')
+
+        self.ln13,= self.ax6.plot([], [], 'b', label='x NED velocity')
+        self.ln14,= self.ax6.plot([], [], 'r', label='y NED velocity')
+
+        self.x_ned_data = [] 
+        self.y_ned_data = [] 
+        self.ned_time = []
 
         self.vx_data = [] 
         self.vy_data = [] 
@@ -119,6 +127,20 @@ class Visualiser:
         self.pwm_time.append(cur_time)
 
 
+    def NED_callback(self,msg=Point):
+        self.x_ned_data.append(msg.x)
+        self.y_ned_data.append(msg.y)
+        # self.x_ned_data.append(msg.x)
+        # self.vy_data.append(msg.linear.y)
+        # self.vz_data.append(msg.linear.z)
+        # self.vyaw_data.append(msg.angular.z)
+
+        cur_time = time.time()-self.start_time
+        self.ned_time.append(cur_time)
+
+        # x_index = len(self.vx_data)
+        # self.vx_x_data.append(x_index+1)
+
     def velocity_callback(self,msg=Twist):
         self.vx_data.append(msg.linear.x)
         self.vy_data.append(msg.linear.y)
@@ -166,6 +188,9 @@ class Visualiser:
         self.ln11.set_data(self.pwm_time, self.z_pwm)
         self.ln12.set_data(self.pwm_time, self.yaw_pwm)
 
+        self.ln13.set_data(self.ned_time, self.x_ned_data)
+        self.ln14.set_data(self.ned_time, self.y_ned_data)
+
 
 
     
@@ -181,8 +206,12 @@ class Visualiser:
             self.ax3.set_xlim(minx, max(self.v_setpoint_time)+10)
             self.ax4.set_xlim(minx, max(self.v_setpoint_time)+10)
             self.ax5.set_xlim(minx, max(self.v_setpoint_time)+10)
+            self.ax6.set_xlim(minx, max(self.v_setpoint_time)+10)
                         
             # y limits
+            miny = -1
+            maxy = 1
+
             miny_1= min(self.vx_data)
             miny_2= min(self.vx_setpoint_data)
             miny = min(miny_1, miny_2)
@@ -220,7 +249,23 @@ class Visualiser:
 
             # miny = min(self.x_pwm,self.y_pwm,self.z_pwm, self.yaw_pwm)
             # maxy = max(self.x_pwm,self.y_pwm,self.z_pwm, self.yaw_pwm)
-            self.ax5.set_ylim(1000,2000)
+            # self.ax5.set_ylim(1000,2000)
+            self.ax5.set_ylim(-1000,1000)
+
+            miny = -1
+            maxy = 1
+            self.ax1.set_ylim(miny-0.5,maxy+0.5)
+            self.ax2.set_ylim(miny-0.5,maxy+0.5)
+            self.ax3.set_ylim(miny-0.5,maxy+0.5)
+
+            miny = -0.5
+            maxy = 0.5
+            self.ax4.set_ylim(miny-0.5,maxy+0.5)
+
+            miny = -0.5
+            maxy = 0.5
+            self.ax6.set_ylim(miny-0.5,maxy+0.5)
+           
 
 
             
@@ -234,6 +279,7 @@ vis = Visualiser()
 sub1 = rospy.Subscriber('velocity_setpoint', Twist, vis.velocity_setpoint_callback)
 sub2 = rospy.Subscriber('/dvl/twist', Twist, vis.velocity_callback)
 sub3 = rospy.Subscriber('pwm_setpoint', Twist, vis.pwm_callback)
+sub4 = rospy.Subscriber('sitl_velocity_xyz', Point, vis.NED_callback) 
 
 while not rospy.is_shutdown():
     ani = FuncAnimation(vis.fig, vis.update_plot, init_func=vis.plot_init)
