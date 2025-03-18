@@ -12,6 +12,7 @@ import time
 
 class MotionControl:
     def __init__(self,master, mode = "hardware"): 
+        queue_size =10
         self.send_signal = "manual"
         self.master = master
         self.boot_time = time.time()
@@ -230,8 +231,8 @@ class MotionControl:
         # self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
         
         # publishingg controller setpoints
-        self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=10)
-        self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=10)
+        self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=queue_size)
+        self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=queue_size )
 
     # whenever the button is hit, toggle the controller on/off
     def on_off_callback(self,msg:Bool):

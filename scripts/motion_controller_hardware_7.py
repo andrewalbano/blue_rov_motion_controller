@@ -17,7 +17,9 @@ class MotionControl:
         self.boot_time = time.time()
         self.mode =1
         self.delta =5
+        self.target_depth = 1
 
+        self.num_errors = 15 # stores the last n errors for integral term
         if mode == "hardware": 
             self.rviz_sim = False
             self.sitl = False
@@ -48,13 +50,12 @@ class MotionControl:
             self.linear_velocity_clip = [-0.5,0.5] #min and max velocity setpoints
             self.angular_velocity_clip = [-20*np.pi/180, 20*np.pi/180] #[-1,1]#[-10*np.pi/180, 10*np.pi/180] # min and max angular velocity setpoints
 
-            #  pwm gains
             # xy
-            self.kp_v_x = 300
+            self.kp_v_x = 350
             self.kd_v_x = 0
             self.ki_v_x = 50
 
-            self.kp_v_y = 300
+            self.kp_v_y = 350
             self.kd_v_y = 0
             self.ki_v_y = 50
 
@@ -70,7 +71,7 @@ class MotionControl:
             self.ki_v_yaw = 0
 
             # saturation 
-            self.pwm_anti_windup_clip = [0,500]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
+            self.pwm_anti_windup_clip = [0,50]  # 500# prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
             self.linear_pwm_clip = [1000, 2000] #min and max pwm setpoints
             self.angular_pwm_clip = [1000, 2000] # min and max angular velocity setpoints
 
@@ -99,6 +100,7 @@ class MotionControl:
         self.attitude_transform = np.eye(3)
         self.heading = 0
         
+
         self.last_pose = PoseStamped()
 
         #  storing information about current velocity 
@@ -197,8 +199,10 @@ class MotionControl:
         self.sum_error_vz = 0.0
         self.sum_error_vyaw = 0.0
 
-
-
+        self.last_n_errors_vx = [] 
+        self.last_n_errors_vy = [] 
+        self.last_n_errors_vz = [] 
+        self.last_n_errors_vyaw = [] 
 
         # ##################
         # #  no longer needed
@@ -275,6 +279,8 @@ class MotionControl:
 
             self.filter_coefficient = msg.data[13]
 
+            self.reset_errors()
+
             rospy.loginfo(f"Position controller gains (kp,kd,ki):\nx: ({self.Kp_x}, {self.Kd_x}, {self.Ki_x})\ny: ({self.Kp_y}, {self.Kd_y}, {self.Ki_y})\nz: ({self.Kp_z}, {self.Kd_z}, {self.Ki_z})\nyaw: ({self.Kp_yaw}, {self.Kd_yaw}, {self.Ki_yaw})")
 
         elif msg.data[0]==2:
@@ -298,6 +304,7 @@ class MotionControl:
             self.ki_v_yaw = msg.data[12]
 
             self.filter_coefficient = msg.data[13]
+            self.reset_errors()
 
             rospy.loginfo(f"PWM controller gains (kp,kd,ki):\nx: ({self.kp_v_x}, {self.kd_v_x}, {self.ki_v_x})\ny: ({self.kp_v_y}, {self.kd_v_y}, {self.ki_v_y})\nz: ({self.kp_v_z}, {self.kd_v_z}, {self.ki_v_z})\nyaw: ({self.kp_v_yaw}, {self.kd_v_yaw}, {self.ki_v_yaw})")
 
@@ -314,20 +321,25 @@ class MotionControl:
             self.pwm_testing = False
             self.vx_setpoint = msg.data[1]
             self.vy_setpoint = msg.data[2]
-            self.vz_setpoint = msg.data[3]
+            # self.vz_setpoint = msg.data[3]
+            self.vz_setpoint = 0
+
             self.vyaw_setpoint = msg.data[4]
 
             self.vx_setpoint = np.clip(self.vx_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
             self.vy_setpoint = np.clip(self.vy_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
             self.vz_setpoint = np.clip(self.vz_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
             self.vyaw_setpoint = np.clip(self.vyaw_setpoint, self.angular_velocity_clip[0],self.angular_velocity_clip[1])
-
+            
+            self.target_depth = msg.data[3]
 
             # reset the integral errors
-            self.sum_error_vx = 0.0
-            self.sum_error_vy = 0.0
-            self.sum_error_vz = 0.0
-            self.sum_error_vyaw = 0.0
+            # self.sum_error_vx = 0.0
+            # self.sum_error_vy = 0.0
+            # self.sum_error_vz = 0.0
+            # self.sum_error_vyaw = 0.0
+            self.reset_errors()
+        
         
             rospy.loginfo(f"Preparing for velocity test\nvx setpoint = {self.vx_setpoint}\nvy setpoint = {self.vy_setpoint}\nvz setpoint = {self.vz_setpoint}\nangular velocity setpoint = {self.vyaw_setpoint}")
 
@@ -338,6 +350,9 @@ class MotionControl:
             self.vy_setpoint = 0
             self.vz_setpoint = 0
             self.vyaw_setpoint = 0
+
+            self.reset_errors()
+        
             rospy.loginfo(f"Ended velocity test mode")
         
         elif msg.data[0]==6:
@@ -345,9 +360,14 @@ class MotionControl:
             self.velocity_setpoint_testing = False
             self.x_pwm = int(msg.data[1])
             self.y_pwm = int(msg.data[2])
-            self.z_pwm= int(msg.data[3])
+            # self.z_pwm= int(msg.data[3])
+            self.z_pwm = 500
             self.yaw_pwm = int(msg.data[4])
             rospy.loginfo("Joystick mode")
+
+            self.target_depth = msg.data[3]
+
+            
         
         elif msg.data[0]==7:
             self.pwm_setpoint_testing = False
@@ -1060,6 +1080,11 @@ class MotionControl:
         self.sum_error_vz = 0.0
         self.sum_error_vyaw = 0.0
 
+        self.last_n_errors_vx = [] 
+        self.last_n_errors_vy = [] 
+        self.last_n_errors_vz = [] 
+        self.last_n_errors_vyaw = [] 
+
     def calc_yaw_velocity_heading(self):
         # calculate position errors in the NED FRAME
         self.error_x = self.current_waypoint.pose.position.x - self.current_pose.pose.position.x
@@ -1389,6 +1414,8 @@ class MotionControl:
         self.sum_error_z += self.calculate_integral(a = self.prev_error_z, b = self.error_z, h = self.dt)
         self.sum_error_yaw += self.calculate_integral(a = self.prev_error_yaw, b = self.error_yaw, h = self.dt) # to final orientation
 
+        
+
         # anti windup for integral
         self.sum_error_x = np.clip(self.sum_error_x, self.velocity_anti_windup_clip[0],self.velocity_anti_windup_clip[1])
         self.sum_error_y = np.clip(self.sum_error_y, self.velocity_anti_windup_clip[0],self.velocity_anti_windup_clip[1])
@@ -1469,8 +1496,35 @@ class MotionControl:
         self.vdedz = (self.error_vz - self.prev_error_vz) / self.dt
         self.vdedyaw = (self.error_vyaw - self.prev_error_vyaw) / self.dt
       
+        # rospy.loginfo_throttle(1,"getting to integral")
+        # calulating approximate integral of the error in the NED FRAME, just the running sum 
+        # self.last_n_errors_vx.append(self.error_vx)
+        # self.last_n_errors_vy.append(self.error_vx)
+        # self.last_n_errors_vz.append(self.error_vx)
+        # self.last_n_errors_vyaw.append(self.error_vx)
 
+        # # if len(self.last_n_errors_vx)> self.num_errors:
+        # #     self.last_n_errors_vx.pop(0)
+        # #     self.last_n_errors_vy.pop(0)
+        # #     self.last_n_errors_vz.pop(0)
+        # #     self.last_n_errors_vyaw.pop(0)
+
+        # if len(self.last_n_errors_vx) > 0:
+        #     self.sum_error_vx = sum(self.last_n_errors_vx)
+        #     self.sum_error_vy = sum(self.last_n_errors_vy)
+        #     self.sum_error_vz = sum(self.last_n_errors_vy)
+        #     self.sum_error_vyaw = sum(self.last_n_errors_vyaw)
+        # else:
+        #     self.sum_error_vx = 0
+        #     self.sum_error_vy = 0
+        #     self.sum_error_vz = 0
+        #     self.sum_error_vyaw =0
+       
+
+        # rospy.loginfo_throttle(1,"getting past integral")
+        
         # calulating integral of the error in the NED FRAME using the trapezoidal method for the area
+
         self.sum_error_vx += self.calculate_integral(a = self.prev_error_vx, b = self.error_vx, h = self.dt)
         self.sum_error_vy += self.calculate_integral(a = self.prev_error_vy, b = self.error_vy, h = self.dt)
         self.sum_error_vz += self.calculate_integral(a = self.prev_error_vz, b = self.error_vz, h = self.dt)
@@ -1548,7 +1602,7 @@ class MotionControl:
         # outputs a joystick signal to send to the robot tries to reach setpoint velocity
 
 
-        rospy.loginfo_throttle(10,"velocity controller is active")
+        # rospy.loginfo_throttle(10,"velocity controller is active")
         # compute velocity error compared to setpoint
         self.calculate_velocity_errors()
         # computeall pwm signals to send 
@@ -1564,10 +1618,10 @@ class MotionControl:
         # send_control_manual(self.x_pwm,self.y_pwm, self.z_pwm, self.yaw_pwm, master)
 
         # rospy.loginfo_throttle(2,"error: x=%.2f, y=%.2f, z=%.2f" ,self.error_vx, self.error_vy, self.error_vz) 
-
-        rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.vx_setpoint, self.vy_setpoint, self.vz_setpoint) 
-        rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.current_velocity.linear.x, self.current_velocity.linear.y, self.current_velocity.linear.z) # self.current_velocity.angular.z) 
-        rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",self.x_pwm, self.y_pwm, self.z_pwm, self.yaw_pwm) 
+        # rospy.loginfo_throttle(10,"velocity controller is active")
+        # rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.vx_setpoint, self.vy_setpoint, self.vz_setpoint) 
+        # rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.current_velocity.linear.x, self.current_velocity.linear.y, self.current_velocity.linear.z) # self.current_velocity.angular.z) 
+        # rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",self.x_pwm, self.y_pwm, self.z_pwm, self.yaw_pwm) 
 
     def manual_pwm_user_defined(self):
 
@@ -1733,7 +1787,7 @@ def main():
     # master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
   
     controller.send_signal = "manual"
-    controller.mode =2
+    controller.mode = 1
     controller.delta =5
 
 
@@ -1750,15 +1804,24 @@ def main():
                 
 
                 if controller.velocity_setpoint_testing:
-                
+                    rospy.loginfo_throttle(10,"velocity controller is active")
+        
                     controller.velocity_controller()
                     # for sending the actual control via manual mode
-                    send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm)
+                    # send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm)
+                    send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.yaw_pwm)
                     
+                    controller.set_target_depth(-1*controller.target_depth)
+
+                    rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
+                    rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
+                    rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
+
 
                 elif controller.pwm_testing:
                     controller.manual_pwm_user_defined()
-                    send_control_manual(master,controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm)
+                    send_control_manual(master,controller.x_pwm,controller.y_pwm, controller.yaw_pwm)
+                    controller.set_target_depth(-1*controller.target_depth)
         
                 else:
 
@@ -1802,7 +1865,7 @@ def main():
                     #     ###############################################################################################################
                     #     # CONTROL LOOP
                     
-        
+                    rospy.loginfo_throttle(10, "Waypoint mode is active")
 
                     if controller.mode ==1:
                         controller.calculate_position_errors()
@@ -1889,8 +1952,6 @@ def main():
                             controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
                             
 
-                
-
                     # publish the calculated setpoints
                     controller.publish_velocity_setpoints()
                     controller.publish_pwm_commands()
@@ -1898,6 +1959,11 @@ def main():
                     rospy.loginfo_throttle(2,"Current Pose: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f" ,controller.current_pose.pose.position.x,controller.current_pose.pose.position.y,controller.current_pose.pose.position.z, controller.current_yaw)
                     rospy.loginfo_throttle(2,"Current waypoint: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.current_waypoint.pose.position.x,controller.current_waypoint.pose.position.y,controller.current_waypoint.pose.position.z, controller.waypoint_yaw)
                     
+                    rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
+                    rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
+                    rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
+
+
                     # rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f, yaw velocity=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z,controller.current_velocity.angular.z*180/np.pi) # controller.current_velocity.angular.z) 
                     # rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f, yaw velocity=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint, controller.vyaw_setpoint*180/np.pi) 
                     

@@ -16,7 +16,6 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   tf
   mavros_msgs
-
 )
 
 ## System dependencies are found with CMake's conventions
@@ -210,6 +209,6 @@ include_directories(
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
-catkin_install_python(PROGRAMS scripts/motion_controller_hardware_3.py
+catkin_install_python(PROGRAMS scripts/motion_controller_hardware_7.py scripts/motion_controller_hardware_6.py scripts/motion_controller_hardware_5.py scripts/motion_controller_hardware_3.py scripts/setpoint_plotting.py
   DESTINATION $(CATKIN_PACKAGE_BIN_DESTINATION)
 )

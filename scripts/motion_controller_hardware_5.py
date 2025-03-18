@@ -99,6 +99,7 @@ class MotionControl:
         self.attitude_transform = np.eye(3)
         self.heading = 0
         
+        self.target_depth = 0
         self.last_pose = PoseStamped()
 
         #  storing information about current velocity 
@@ -199,41 +200,7 @@ class MotionControl:
 
 
 
-        ##################
-        #  no longer needed
-        self.x_control = 0
-        self.y_control = 0
-        self.z_control = 0
-        self.roll_control = 0
-        self.pitch_control = 0
-        self.yaw_control = 0
-        ########################
-
-
-        # if self.hardware:
-        #     self.current_velocity =Twist() #store the current velocity
-        #     self.velocity_command = Twist()
-        #     self.pwm_setpoint = Twist()
-
-        # else:
-        #     self.current_velocity =TwistStamped() #store the current velocity
-
-        #     # Simulated Control values used in the kinematic simulation only 
-        #     self.velocity_command = TwistStamped()
-        #     self.velocity_command.header.frame_id = "base_link"  # Example frame id
-            
-        #     self.current_velocity = TwistStamped()
-        #     self.velocity_command.header.frame_id = "base_link"  # Example frame id
-
-
-        ############
-        # NO LOINGER NEED
-        # control clip
-        # self.control_clip = (1200, 1800)    
-        # self.upper_control_clip = (1550, 1800)    
-        # self.lower_control_clip = (1100, 1450)    
-
-        #############
+    
    
 
         # creating subscribers
@@ -337,7 +304,8 @@ class MotionControl:
             self.pwm_testing = False
             self.vx_setpoint = msg.data[1]
             self.vy_setpoint = msg.data[2]
-            self.vz_setpoint = msg.data[3]
+            # self.vz_setpoint = msg.data[3]
+            self.vz_setpoint = 0
             self.vyaw_setpoint = msg.data[4]
 
             self.vx_setpoint = np.clip(self.vx_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
@@ -346,11 +314,14 @@ class MotionControl:
             self.vyaw_setpoint = np.clip(self.vyaw_setpoint, self.angular_velocity_clip[0],self.angular_velocity_clip[1])
 
 
+            self.target_depth = msg.data[3]
+
             # reset the integral errors
-            self.sum_error_vx = 0.0
-            self.sum_error_vy = 0.0
-            self.sum_error_vz = 0.0
-            self.sum_error_vyaw = 0.0
+            # self.sum_error_vx = 0.0
+            # self.sum_error_vy = 0.0
+            # self.sum_error_vz = 0.0
+            # self.sum_error_vyaw = 0.0
+            self.reset_errors()
         
             rospy.loginfo(f"Preparing for velocity test\nvx setpoint = {self.vx_setpoint}\nvy setpoint = {self.vy_setpoint}\nvz setpoint = {self.vz_setpoint}\nangular velocity setpoint = {self.vyaw_setpoint}")
 
@@ -361,6 +332,8 @@ class MotionControl:
             self.vy_setpoint = 0
             self.vz_setpoint = 0
             self.vyaw_setpoint = 0
+            self.reset_errors()
+        
             rospy.loginfo(f"Ended velocity test mode")
         
         elif msg.data[0]==6:
@@ -368,8 +341,10 @@ class MotionControl:
             self.velocity_setpoint_testing = False
             self.x_pwm = int(msg.data[1])
             self.y_pwm = int(msg.data[2])
-            self.z_pwm= int(msg.data[3])
+            # self.z_pwm= int(msg.data[3])
             self.yaw_pwm = int(msg.data[4])
+
+            self.target_depth = msg.data[3]
             rospy.loginfo("Joystick mode")
         
         elif msg.data[0]==7:
@@ -1628,7 +1603,41 @@ class MotionControl:
             #  (all not supported yet, ignored in GCS Mavlink)
         )
     
-    def set_target_attitude(self, roll=0, pitch=0, yaw=0):
+    ##################
+        #  no longer needed
+        self.x_control = 0
+        self.y_control = 0
+        self.z_control = 0
+        self.roll_control = 0
+        self.pitch_control = 0
+        self.yaw_control = 0
+        ########################
+
+
+        # if self.hardware:
+        #     self.current_velocity =Twist() #store the current velocity
+        #     self.velocity_command = Twist()
+        #     self.pwm_setpoint = Twist()
+
+        # else:
+        #     self.current_velocity =TwistStamped() #store the current velocity
+
+        #     # Simulated Control values used in the kinematic simulation only 
+        #     self.velocity_command = TwistStamped()
+        #     self.velocity_command.header.frame_id = "base_link"  # Example frame id
+            
+        #     self.current_velocity = TwistStamped()
+        #     self.velocity_command.header.frame_id = "base_link"  # Example frame id
+
+
+        ############
+        # NO LOINGER NEED
+        # control clip
+        # self.control_clip = (1200, 1800)    
+        # self.upper_control_clip = (1550, 1800)    
+        # self.lower_control_clip = (1100, 1450)    
+
+        #############    def set_target_attitude(self, roll=0, pitch=0, yaw=0):
         """ Sets the target attitude while in depth-hold mode.
 
         'roll', 'pitch', and 'yaw' are angles in rad.
@@ -1749,7 +1758,7 @@ def main():
                     # for sending the actual control via manual mode
                     send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.yaw_pwm)
                     
-                    controller.set_target_depth(-1*5)
+                    controller.set_target_depth(-1*controller.target_depth)
 
 
 
@@ -1876,9 +1885,7 @@ def main():
                                 # rospy.loginfo("adjusting heading, x, and y")
 
 
-
-                        if controller.mode ==1:
-                            controller.velocity_controller()
+                        controller.velocity_controller()
                         
                         # for sending the actual control via manual mode
                         send_control_manual(master, controller.x_pwm,controller.y_pwm)
@@ -1909,35 +1916,6 @@ def main():
                     
                     # rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
 
-                # elif controller.mode ==2:
-                #     controller.calculate_position_errors()
-                    
-
-                #     if controller.reached_position():
-                #         rospy.loginfo_throttle(2,"reached position, adjusting yaw")
-                #         controller.set_target_attitude(yaw=controller.target_yaw)
-                #         controller.calc_x_velocity_setpoint()
-                #         controller.calc_y_velocity_setpoint()
-                #     elif controller.reached_x_y():
-                #         controller.set_target_attitude(yaw=controller.target_yaw)
-                #         controller.calc_x_velocity_setpoint()
-                #         controller.calc_y_velocity_setpoint()
-                #     else:
-                #         rospy.loginfo_throttle(2,"RTR")
-                #         # calcualte heading to waypoint
-                #         controller.set_target_attitude(yaw=controller.heading)
-                #         controller.heading = np.arctan2(np.array(controller.error_y),np.array(controller.error_x))
-                #         controller.heading_error = controller.heading - controller.current_yaw
-
-                #         # normalize heading 
-                #         if controller.heading_error > np.pi:
-                #             controller.heading -= 2 * np.pi
-                #         elif controller.heading_error < -np.pi:
-                #             controller.heading += 2 * np.pi
-
-                       
-                #         send_control_manual(master, controller.x_pwm,controller.y_pwm)
-                    
 
         elif not controller.invoked:
             rospy.loginfo_throttle(10,"controller is  disabled")

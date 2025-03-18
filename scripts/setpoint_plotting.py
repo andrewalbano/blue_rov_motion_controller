@@ -20,8 +20,8 @@ class Visualiser:
 
 
         # self.fig, (self.ax1,self.ax2,self.ax3,self.ax4) = plt.subplots(2)
-        self.fig, (self.ax1,self.ax2, self.ax3, self.ax4 ,self.ax5,self.ax6) = plt.subplots(6)
-
+        # self.fig, (self.ax1,self.ax2, self.ax3, self.ax4 ,self.ax5,self.ax6) = plt.subplots(6)
+        self.fig, (self.ax1,self.ax2, self.ax3, self.ax4 ,self.ax5)= plt.subplots(5)
 
         self.ln1, = self.ax1.plot([], [], 'r', label='x velocity')
         self.ln2, = self.ax1.plot([], [], 'b', label='x setpoint velocity')
@@ -40,8 +40,8 @@ class Visualiser:
         self.ln11, = self.ax5.plot([], [], 'g', label='z pwm')
         self.ln12, = self.ax5.plot([], [], 'k', label='yaw pwm')
 
-        self.ln13,= self.ax6.plot([], [], 'b', label='x NED velocity')
-        self.ln14,= self.ax6.plot([], [], 'r', label='y NED velocity')
+        # self.ln13,= self.ax6.plot([], [], 'b', label='x NED velocity')
+        # self.ln14,= self.ax6.plot([], [], 'r', label='y NED velocity')
 
         self.x_ned_data = [] 
         self.y_ned_data = [] 
@@ -188,25 +188,30 @@ class Visualiser:
         self.ln11.set_data(self.pwm_time, self.z_pwm)
         self.ln12.set_data(self.pwm_time, self.yaw_pwm)
 
-        self.ln13.set_data(self.ned_time, self.x_ned_data)
-        self.ln14.set_data(self.ned_time, self.y_ned_data)
+        # self.ln13.set_data(self.ned_time, self.x_ned_data)
+        # self.ln14.set_data(self.ned_time, self.y_ned_data)
 
 
 
     
         if len(self.pwm_time)>10:
             if self.sliding_window:
-                minx = max(self.v_setpoint_time)-30                           
+                # minx = max(self.v_setpoint_time)-15     
+                minx = self.v_setpoint_time[len(self.v_setpoint_time)-1] -10                  
             else:
                 minx = 0
 
             # x limits
-            self.ax1.set_xlim(minx, max(self.v_setpoint_time)+10)
-            self.ax2.set_xlim(minx, max(self.v_setpoint_time)+10)
-            self.ax3.set_xlim(minx, max(self.v_setpoint_time)+10)
-            self.ax4.set_xlim(minx, max(self.v_setpoint_time)+10)
-            self.ax5.set_xlim(minx, max(self.v_setpoint_time)+10)
-            self.ax6.set_xlim(minx, max(self.v_setpoint_time)+10)
+            space= 7
+
+            maxx= self.v_setpoint_time[len(self.v_setpoint_time)-1] +space
+            # maxx = max(self.v_setpoint_time) +space
+            self.ax1.set_xlim(minx, maxx)
+            self.ax2.set_xlim(minx, maxx)
+            self.ax3.set_xlim(minx, maxx)
+            self.ax4.set_xlim(minx, maxx)
+            self.ax5.set_xlim(minx, maxx)
+            # self.ax6.set_xlim(minx, max(self.v_setpoint_time)+10)
                         
             # y limits
             miny = -1
@@ -264,7 +269,7 @@ class Visualiser:
 
             miny = -0.5
             maxy = 0.5
-            self.ax6.set_ylim(miny-0.5,maxy+0.5)
+            # self.ax6.set_ylim(miny-0.5,maxy+0.5)
            
 
 
@@ -279,7 +284,7 @@ vis = Visualiser()
 sub1 = rospy.Subscriber('velocity_setpoint', Twist, vis.velocity_setpoint_callback)
 sub2 = rospy.Subscriber('/dvl/twist', Twist, vis.velocity_callback)
 sub3 = rospy.Subscriber('pwm_setpoint', Twist, vis.pwm_callback)
-sub4 = rospy.Subscriber('sitl_velocity_xyz', Point, vis.NED_callback) 
+# sub4 = rospy.Subscriber('sitl_velocity_xyz', Point, vis.NED_callback) 
 
 while not rospy.is_shutdown():
     ani = FuncAnimation(vis.fig, vis.update_plot, init_func=vis.plot_init)
