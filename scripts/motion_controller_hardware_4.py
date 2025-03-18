@@ -2,12 +2,24 @@
 import rospy
 import numpy as np
 # import matplotlib.pyplot as plt
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose, Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray, TwistStamped, Pose, Twist
 from tf.transformations import euler_from_quaternion
 from mavros_msgs.msg import OverrideRCIn
 from pymavlink import mavutil
 from std_msgs.msg import Bool, Int8, Float32MultiArray
 
+# Jack added this:
+from sensor_msgs.msg import Image
+import dvl_client
+import json
+
+# import cv2
+# from cv_bridge import CvBridge, CvBridgeError
+class Sonar:
+    def ___init__(self):
+        self.image = Image()
+        self.image_sub = rospy.Subscriber('/oculus_sonar/ping_image', Image, self.sonar_image_callback)
+    
 class MotionControl:
     def __init__(self,mode = "sitl"): 
 
@@ -37,7 +49,12 @@ class MotionControl:
 
         #############
 
-
+        # Jack added this:
+        self.dvl_IP, self.dvl_PORT = dvl_client.TCP_IP, dvl_client.TCP_PORT
+        self.dvl_access = dvl_client.DVLclient(self.dvl_IP, self.dvl_PORT)
+        self.dvl_access.connect()
+        self.dvl_data = json.loads(MotionControl.dvl_access.get().decode("utf-8"))
+        # self.cvbridge = CvBridge()
 
         # rates and frequencies
         self.frequency =10 
@@ -72,17 +89,6 @@ class MotionControl:
         self.vx_setpoint = 0
         self.vy_setpoint = 0
         self.vz_setpoint = 0
-        self.vyaw_setpoint = 0
-
-
-        # pwm setpoint
-        self.x_pwm = 0
-        self.y_pwm = 0
-        self.z_pwm = 0
-        self.yaw_pwm = 0
-       
-        self.pwm_setpoint = Twist()
-        self.pwm_setpoint.linear.x = 0
         self.pwm_setpoint.linear.y = 0
         self.pwm_setpoint.linear.z = 0
         self.pwm_setpoint.angular.x = 0
@@ -248,16 +254,13 @@ class MotionControl:
             self.pwm_anti_windup_clip = [0,500]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
             self.linear_pwm_clip = [1200, 1800] #min and max pwm setpoints
             self.angular_pwm_clip = [1200, 1800] # min and max angular velocity setpoints
-        elif mode == "hardware": 
-            self.rviz_sim = False
-            self.sitl = False
-            self.hardware = True
+        elif mode == "hardware": sub
 
             # POSITION CONTROLLER
             # x-y gains
             self.Kp_xy = 0.5
             self.Kd_xy = 0 
-            self.Ki_xy = 0 
+            self.Ki_xy = 0
 
             # z gains
             self.Kp_z = 0.5
@@ -286,7 +289,7 @@ class MotionControl:
             self.kd_v_z = 0
             self.ki_v_z = 0
 
-            # yaw
+            # yawself.sub9 = rospy.Subscriber('/oculus_sonar/ping_image', Image, self.sonar_image_callback)
             self.kp_v_yaw = 50
             self.kd_v_yaw = 0
             self.ki_v_yaw = 0
@@ -297,7 +300,7 @@ class MotionControl:
             self.angular_pwm_clip = [1300, 1700] # min and max angular velocity setpoints
 
 
-
+sub
 
 
 
@@ -348,6 +351,10 @@ class MotionControl:
         self.sub7 = rospy.Subscriber('controller_gains', Float32MultiArray, self.controller_gains_callback)
         # self.sub8 = rospy.Subscriber('sitl_current_velocity', TwistStamped, self.velocity_callback)
         self.sub8 = rospy.Subscriber('/dvl/twist', Twist, self.velocity_callback)
+
+        # Jack did this Mar. 10, 2025:
+        
+
         # creating publishers, for the RViz only simulation
         # self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
          
@@ -385,10 +392,7 @@ class MotionControl:
             self.Kd_z = msg.data[5]
             self.Ki_z = msg.data[6]
 
-            # yaw gains 
-            self.Kp_yaw = msg.data[7]
-            self.Kd_yaw = msg.data[8]
-            self.Ki_yaw = msg.data[9]
+            # yaw gains velocity_callback
 
             rospy.loginfo(f"Position controller gains (kp,kd,ki):\nxy: ({self.Kp_xy}, {self.Kd_xy}, {self.Ki_xy})\nz: ({self.Kp_z}, {self.Kd_z}, {self.Ki_z})\nyaw: ({self.Kp_yaw}, {self.Kd_yaw}, {self.Ki_yaw})")
 
@@ -465,6 +469,27 @@ class MotionControl:
 
         # assigns waypoints
         self.waypoints = msg
+    
+    # Jack: 
+    def sonar_image_callback(self, msg:Image):
+        self.sonar_picture = msg.data
+    
+    # def show_image(img):
+    #     cv2.imshow("Image", img)
+    #     cv2.waitKey(3)
+
+    # def image_callback(img_msg):
+    #  # log some info about the image topic
+    #  rospy.loginfo(img_msg.header)
+
+    #  # Try to convert the ROS Image message to a CV2 Image
+    #  try:
+    #      cv_image = bridge.imgmsg_to_cv2(img_msg, "passthrough")
+    #  except CvBridgeError, e:
+    #      rospy.logerr("CvBridge Error: {0}".format(e))
+
+    #  # Show the converted image
+    #  show_image(cv_image)
 
     def get_current_waypoint(self):
         #  accounts for the case where there is only 1 waypoint 
@@ -1044,7 +1069,7 @@ class MotionControl:
 # Function to send control inputs to the robot (e.g., through MAVLink or a ROS topic)
 def send_control(x_pwm, y_pwm, z_pwm, yaw_pwm, master):
     
-    # set_rc_channel_pwm(3, master, pwm= z_pwm) #throttle or depth
+    # set_rc_channel_pwm(3, master, pwm= z_pwm) #thromathttle or depth
     set_rc_channel_pwm(4, master, pwm=yaw_pwm) # yaw
     set_rc_channel_pwm(5, master, pwm=x_pwm)  # forward
     set_rc_channel_pwm(6, master, pwm=y_pwm) # lateral control
@@ -1070,6 +1095,9 @@ def set_rc_channel_pwm(channel_id, master, pwm=1500):
         *rc_channel_values)                  # RC channel list, in microseconds.
 
 
+# Jack, Mon. 03/10/2025: 
+# def dvl_transform(dist):
+#     # Objective: to plot the distance metric as a simulated scan of the walls/pool bottom from the dvl
 
 
 
@@ -1080,6 +1108,10 @@ def main():
 
     # initialize motion controller
     controller = MotionControl(mode="hardware")
+    
+    # Jack added this:
+    dist = np.zeros((4,1))
+    # 
 
     if controller.sitl or controller.hardware: 
          
@@ -1106,7 +1138,27 @@ def main():
         rospy.loginfo_once('Controller is in simulation mode')
     
     while not rospy.is_shutdown():
+        # Jack:
         
+        " Important, data['type'] == 'velocity' printed on odd indicies, data['type'] == 'position_local' printed on even indicies"
+        " Individual transducer data stored within the 'velocity' type"
+
+        if MotionControl.dvl_data['type'] == 'velocity':
+            # print(dvl_data['transducers'])
+            for j in range(4): # data.get('transducers'):# .__sizeof__():
+                transducer = MotionControl.dvl_data.get('transducers').pop(0)
+                dist[j] = transducer.get('distance')
+            transducer_distance = np.linalg.mean(dist)
+            # Need to define transducer distances as vectors with respect to ROV orientation
+            # Beam angle is 22.5 deg from horizontal
+
+
+            # print(dist)
+
+
+        # 
+
+
         if controller.invoked:
             rospy.logerr_once("ACTIVATED")
             rospy.loginfo_throttle(30,"controller is active")
@@ -1125,7 +1177,7 @@ def main():
             # controller.vx_setpoint = 0
             # controller.vy_setpoint = 0
             # controller.vz_setpoint = 0
-            # controller.vyaw_setpoint = 0
+            # controller.vyaw_setpoint = 0how to 
 
         
 

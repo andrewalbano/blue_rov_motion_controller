@@ -210,6 +210,6 @@ include_directories(
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
-catkin_install_python(PROGRAMS scripts/motion_controller_hardware_3.py scripts/motion_controller_hardware.py scripts/motion_controller_v5.py scripts/motion_controller_v4.py scripts/motion_controller_v3.py scripts/motion_controller_v2.py scripts/motion_controller.py
+catkin_install_python(PROGRAMS scripts/sonar.py scripts/motion_controller_hardware_3.py scripts/motion_controller_hardware.py scripts/motion_controller_v5.py scripts/motion_controller_v4.py scripts/motion_controller_v3.py scripts/motion_controller_v2.py scripts/motion_controller_original.py
   DESTINATION $(CATKIN_PACKAGE_BIN_DESTINATION)
 )
