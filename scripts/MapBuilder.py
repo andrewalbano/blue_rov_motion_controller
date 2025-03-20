@@ -36,6 +36,7 @@ class MapBuilder(SonarTopic):
         
         # Extract orientation (quaternion) and convert to Euler angles (roll, pitch, yaw)
         q = msg.pose.pose.orientation
+
         self.current_roll,self.current_pitch,self.current_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
         # self.attitude_transform = np.array(euler_matrix(self.current_roll,self.current_pitch,self.current_yaw))[:3,:3]
@@ -47,7 +48,7 @@ class MapBuilder(SonarTopic):
         XY_FF2ROV = np.zeros((1,2))
         # Solve equations for each pixel coordinates, unless batch processing possible?
         XY_FF = XY_FF2ROV + self.Rot2D * XY_local.T # Shape (2,N)
-        rospy.loginfo_throttle(5,XY_FF)
+        # rospy.loginfo_throttle(5,XY_FF)
         
         # print(XY_FF)
         # self.map.publish(XY_FF) # Published the list of XY pixels to the ROS topic for use in RViz
