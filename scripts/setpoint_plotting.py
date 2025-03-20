@@ -141,11 +141,19 @@ class Visualiser:
         # x_index = len(self.vx_data)
         # self.vx_x_data.append(x_index+1)
 
-    def velocity_callback(self,msg=Twist):
-        self.vx_data.append(msg.linear.x)
-        self.vy_data.append(msg.linear.y)
-        self.vz_data.append(msg.linear.z)
-        self.vyaw_data.append(msg.angular.z)
+    def velocity_callback(self,msg=TwistStamped):
+        # self.vx_data.append(msg.linear.x)
+        # self.vy_data.append(msg.linear.y)
+        # self.vz_data.append(msg.linear.z)
+        # self.vyaw_data.append(msg.angular.z)
+
+        # cur_time = time.time()-self.start_time
+        # self.v_time.append(cur_time)
+
+        self.vx_data.append(msg.twist.linear.x)
+        self.vy_data.append(msg.twist.linear.y)
+        self.vz_data.append(msg.twist.linear.z)
+        self.vyaw_data.append(msg.twist.angular.z)
 
         cur_time = time.time()-self.start_time
         self.v_time.append(cur_time)
@@ -282,7 +290,7 @@ rospy.loginfo("initialized velocity plot node")
 
 vis = Visualiser()
 sub1 = rospy.Subscriber('velocity_setpoint', Twist, vis.velocity_setpoint_callback)
-sub2 = rospy.Subscriber('/dvl/twist', Twist, vis.velocity_callback)
+sub2 = rospy.Subscriber('/dvl/twist', TwistStamped, vis.velocity_callback)
 sub3 = rospy.Subscriber('pwm_setpoint', Twist, vis.pwm_callback)
 # sub4 = rospy.Subscriber('sitl_velocity_xyz', Point, vis.NED_callback) 
 
