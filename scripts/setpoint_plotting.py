@@ -225,30 +225,32 @@ class Visualiser:
             miny = -1
             maxy = 1
 
-            miny_1= min(self.vx_data)
-            miny_2= min(self.vx_setpoint_data)
-            miny = min(miny_1, miny_2)
-            maxy_1= max(self.vx_data)
-            maxy_2= max(self.vx_setpoint_data)
-            maxy = max(maxy_1, maxy_2)
-            self.ax1.set_ylim(miny-0.5,maxy+0.5)
-                            
+            # miny_1= min(self.vx_data)
+            # miny_2= min(self.vx_setpoint_data)
+            # miny = min(miny_1, miny_2)
+            # maxy_1= max(self.vx_data)
+            # maxy_2= max(self.vx_setpoint_data)
+            # maxy = max(maxy_1, maxy_2)
+            # self.ax1.set_ylim(miny-0.5,maxy+0.5)
 
-            miny_1= min(self.vy_data)
-            miny_2= min(self.vy_setpoint_data)
-            miny = min(miny_1, miny_2)
-            maxy_1= max(self.vy_data)
-            maxy_2= max(self.vy_setpoint_data)
-            maxy = max(maxy_1, maxy_2)
-            self.ax2.set_ylim(miny-0.5,maxy+0.5)
+            # miny_1= min(self.vy_data)
+            # miny_2= min(self.vy_setpoint_data)
+            # miny = min(miny_1, miny_2)
+            # maxy_1= max(self.vy_data)
+            # maxy_2= max(self.vy_setpoint_data)
+            # maxy = max(maxy_1, maxy_2)
+            # self.ax2.set_ylim(miny-0.5,maxy+0.5)
 
-            miny_1= min(self.vz_data)
-            miny_2= min(self.vz_setpoint_data)
-            miny = min(miny_1, miny_2)
-            maxy_1= max(self.vz_data)
-            maxy_2= max(self.vz_setpoint_data)
-            maxy = max(maxy_1, maxy_2)
-            self.ax3.set_ylim(miny-0.5,maxy+0.5)
+            self.ax1.set_ylim(-0.3,0.3)
+            self.ax2.set_ylim(-0.3,0.3)
+
+            # miny_1= min(self.vz_data)
+            # miny_2= min(self.vz_setpoint_data)
+            # miny = min(miny_1, miny_2)
+            # maxy_1= max(self.vz_data)
+            # maxy_2= max(self.vz_setpoint_data)
+            # maxy = max(maxy_1, maxy_2)
+            # self.ax3.set_ylim(miny-0.5,maxy+0.5)
 
             miny_1= min(self.vyaw_data)
             miny_2= min(self.vyaw_setpoint_data)
@@ -267,8 +269,11 @@ class Visualiser:
 
             miny = -1
             maxy = 1
-            self.ax1.set_ylim(miny-0.5,maxy+0.5)
-            self.ax2.set_ylim(miny-0.5,maxy+0.5)
+            # self.ax1.set_ylim(miny-0.5,maxy+0.5)
+            # self.ax2.set_ylim(miny-0.5,maxy+0.5)
+
+            self.ax1.set_ylim(-0.5,0.5)
+            self.ax2.set_ylim(-0.5,0.5)
             self.ax3.set_ylim(miny-0.5,maxy+0.5)
 
             miny = -0.5
