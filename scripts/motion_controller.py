@@ -359,8 +359,9 @@ class MotionControl:
             self.vyaw_setpoint = np.clip(self.vyaw_setpoint, self.angular_velocity_clip[0],self.angular_velocity_clip[1])
             
             self.reset_velocity_errors()
+            
         
-            rospy.loginfo(f"Preparing for velocity test\nvx setpoint = {self.vx_setpoint }m/s\nvy setpoint = {self.vy_setpoint} m/s\nvz setpoint = {self.vz_setpoint} m/s\nangular velocity setpoint = { msg.data[4]} deg/s")
+            rospy.loginfo(f"Preparing for velocity test\nvx setpoint = {self.vx_setpoint }m/s\nvy setpoint = {self.vy_setpoint} m/s\nvz setpoint = {self.vz_setpoint} m/s\nangular velocity setpoint = { msg.data[4]} deg/s = { self.vyaw_setpoint} rad/s")
 
         elif msg.data[0]==6:
         
@@ -832,13 +833,13 @@ class MotionControl:
 
     def manual_pwm_user_defined(self):
 
-        rospy.loginfo_throttle(10,"PWM defined by user")
+        # rospy.loginfo_throttle(10,"PWM defined by user")
         # publishing information for plotting
         self.publish_velocity_setpoints()
         self.publish_pwm_commands()
 
-        rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.current_velocity.linear.x, self.current_velocity.linear.y, self.current_velocity.linear.z) # self.current_velocity.angular.z) 
-        rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",self.x_pwm, self.y_pwm, self.z_pwm, self.yaw_pwm) 
+        # rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.current_velocity.linear.x, self.current_velocity.linear.y, self.current_velocity.linear.z) # self.current_velocity.angular.z) 
+        # rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",self.x_pwm, self.y_pwm, self.z_pwm, self.yaw_pwm) 
     
     def set_target_depth(self, depth):
         """ Sets the target depth while in depth-hold mode.
@@ -1018,7 +1019,7 @@ def main():
             controller.velocity_controller()
             # for sending the actual control via manual mode
             # send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm)
-            send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.yaw_pwm)
+            send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
             
             controller.set_target_depth(-1*controller.target_depth)
 
@@ -1159,8 +1160,15 @@ def main():
         elif controller.state == "manual pwm":
                 rospy.loginfo_throttle(10,"manual pwm mode is active")
                 controller.manual_pwm_user_defined()
-                send_control_manual(master,controller.x_pwm,controller.y_pwm, controller.yaw_pwm)
+                # send_control_manual(master,controller.x_pwm, controller.y_pwm, controller.yaw_pwm)
+                # send_control_manual(master,controller.x_pwm, controller.y_pwm, controller.yaw_pwm)
+                send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
+
                 controller.set_target_depth(-1*controller.target_depth)
+
+                rospy.loginfo_throttle(update_status_interval,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
+                rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
+    
 
         elif controller.state == "Joystick":
                 rospy.loginfo_throttle(10,"Joystick mode is active")

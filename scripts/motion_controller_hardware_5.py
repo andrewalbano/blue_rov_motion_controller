@@ -1637,7 +1637,8 @@ class MotionControl:
         # self.upper_control_clip = (1550, 1800)    
         # self.lower_control_clip = (1100, 1450)    
 
-        #############    def set_target_attitude(self, roll=0, pitch=0, yaw=0):
+        #############    
+    def set_target_attitude(self, roll=0, pitch=0, yaw=0):
         """ Sets the target attitude while in depth-hold mode.
 
         'roll', 'pitch', and 'yaw' are angles in rad.

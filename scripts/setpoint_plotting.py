@@ -278,7 +278,8 @@ class Visualiser:
 
             miny = -0.5
             maxy = 0.5
-            self.ax4.set_ylim(miny-0.5,maxy+0.5)
+            # self.ax4.set_ylim(miny-0.5,maxy+0.5)
+            self.ax4.set_ylim(-10,10)
 
             miny = -0.5
             maxy = 0.5
