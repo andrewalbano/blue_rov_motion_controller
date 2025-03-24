@@ -7,12 +7,14 @@ from tf.transformations import quaternion_matrix
 import numpy as np
 from matplotlib.animation import FuncAnimation
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose, Twist, Point
+from std_msgs.msg import Bool   
 
 import time 
 
 
 class Visualiser:
     def __init__(self):
+        self.show_plots = False
         self.sliding_window = True
         # self.fig, self.ax1 = plt.subplots()
         # self.ln, = plt.plot([], [], 'r')
@@ -65,13 +67,10 @@ class Visualiser:
         self.z_pwm =[]
         self.yaw_pwm =[]
         self.pwm_time = []
-        
-
-
+    
 
         self.start_time = time.time()
-        
-
+       
 
     def plot_init(self):
 
@@ -93,7 +92,7 @@ class Visualiser:
 
         self.ax4.set_title("angular velocity")
         self.ax4.set_xlim(0, 100)
-        self.ax4.set_ylim(-10, 10)
+        self.ax4.set_ylim(-5, 5)
         self.ax4.legend(handles=[self.ln7,self.ln8])
 
 
@@ -102,7 +101,7 @@ class Visualiser:
         self.ax5.set_ylim(1000,2000)
         self.ax5.legend(handles=[self.ln9,self.ln10, self.ln11,self.ln12])
         # return self.ln1
-    
+        return self.ln1, self.ln2, self.ln3, self.ln4, self.ln5, self.ln6, self.ln7, self.ln8, self.ln9, self.ln10, self.ln11, self.ln12
     
     def getYaw(self, pose):
         quaternion = (pose.orientation.x, pose.orientation.y, pose.orientation.z,
@@ -126,6 +125,61 @@ class Visualiser:
         cur_time = time.time()-self.start_time
         self.pwm_time.append(cur_time)
 
+    def show_plots_callback(self, msg=Bool):
+        self.show_plots = msg.data
+        rospy.loginfo(f"plots show = {self.show_plots}")
+
+        if self.show_plots:
+            self.sliding_window = True
+            
+            self.fig, (self.ax1,self.ax2, self.ax3, self.ax4 ,self.ax5)= plt.subplots(5)
+
+            self.ln1, = self.ax1.plot([], [], 'r', label='x velocity')
+            self.ln2, = self.ax1.plot([], [], 'b', label='x setpoint velocity')
+
+            self.ln3, = self.ax2.plot([], [], 'r',label='y velocity')
+            self.ln4, = self.ax2.plot([], [], 'b',label='y setpoint velocity')
+
+            self.ln5, = self.ax3.plot([], [], 'r',label='z velocity')
+            self.ln6, = self.ax3.plot([], [], 'b',label='z setpoint velocity')
+            
+            self.ln7, = self.ax4.plot([], [], 'r',label='angular velocity')
+            self.ln8, = self.ax4.plot([], [], 'b',label='angular setpoint velocity')
+
+            self.ln9, = self.ax5.plot([], [], 'r', label='x pwm')
+            self.ln10, = self.ax5.plot([], [], 'b', label='y pwm')
+            self.ln11, = self.ax5.plot([], [], 'g', label='z pwm')
+            self.ln12, = self.ax5.plot([], [], 'k', label='yaw pwm')
+
+            # self.ln13,= self.ax6.plot([], [], 'b', label='x NED velocity')
+            # self.ln14,= self.ax6.plot([], [], 'r', label='y NED velocity')
+
+            self.x_ned_data = [] 
+            self.y_ned_data = [] 
+            self.ned_time = []
+
+            self.vx_data = [] 
+            self.vy_data = [] 
+            self.vz_data = [] 
+            self.vyaw_data = []
+            self.v_time = []
+
+
+            self.vx_setpoint_data = []
+            self.vy_setpoint_data = []
+            self.vz_setpoint_data = []
+            self.vyaw_setpoint_data = []
+            self.v_setpoint_time = []
+
+            self.x_pwm =[]
+            self.y_pwm =[]
+            self.z_pwm =[]
+            self.yaw_pwm =[]
+            self.pwm_time = []
+        
+
+        
+        
 
     def NED_callback(self,msg=Point):
         self.x_ned_data.append(msg.x)
@@ -153,10 +207,18 @@ class Visualiser:
         self.vx_data.append(msg.twist.linear.x)
         self.vy_data.append(msg.twist.linear.y)
         self.vz_data.append(msg.twist.linear.z)
-        self.vyaw_data.append(msg.twist.angular.z)
+        temp2 = msg.twist.angular.z*180/np.pi
+        self.vyaw_data.append(temp2)
 
         cur_time = time.time()-self.start_time
         self.v_time.append(cur_time)
+
+        # if len(self.vx_data)>100:
+            # self.vx_data.pop()
+            # self.vy_data.pop()
+            # self.vz_data.pop()
+            # self.vyaw_data.pop()
+            # self.v_time.pop()
 
         # x_index = len(self.vx_data)
         # self.vx_x_data.append(x_index+1)
@@ -165,7 +227,8 @@ class Visualiser:
         self.vx_setpoint_data.append(msg.linear.x)
         self.vy_setpoint_data.append(msg.linear.y)
         self.vz_setpoint_data.append(msg.linear.z)
-        self.vyaw_setpoint_data.append(msg.angular.z)
+        temp = msg.angular.z*180/np.pi
+        self.vyaw_setpoint_data.append(temp)
         # rospy.loginfo(msg.linear.z)
 
 
@@ -252,13 +315,13 @@ class Visualiser:
             # maxy = max(maxy_1, maxy_2)
             # self.ax3.set_ylim(miny-0.5,maxy+0.5)
 
-            miny_1= min(self.vyaw_data)
-            miny_2= min(self.vyaw_setpoint_data)
-            miny = min(miny_1, miny_2)
-            maxy_1= max(self.vyaw_data)
-            maxy_2= max(self.vyaw_setpoint_data)
-            maxy = max(maxy_1, maxy_2)
-            self.ax4.set_ylim(miny-0.5,maxy+0.5)
+            # miny_1= min(self.vyaw_data)
+            # miny_2= min(self.vyaw_setpoint_data)
+            # miny = min(miny_1, miny_2)
+            # maxy_1= max(self.vyaw_data)
+            # maxy_2= max(self.vyaw_setpoint_data)
+            # maxy = max(maxy_1, maxy_2)
+            # self.ax4.set_ylim(miny-0.5,maxy+0.5)
 
           
 
@@ -279,7 +342,7 @@ class Visualiser:
             miny = -0.5
             maxy = 0.5
             # self.ax4.set_ylim(miny-0.5,maxy+0.5)
-            self.ax4.set_ylim(-10,10)
+            self.ax4.set_ylim(-6,6)
 
             miny = -0.5
             maxy = 0.5
@@ -287,8 +350,8 @@ class Visualiser:
            
 
 
-            
-        # return self.ln1, self.ln2, self.ln3, self.ln4, self.ln5, self.ln6
+        # if self.show_plots:
+        return self.ln1, self.ln2, self.ln3, self.ln4, self.ln5, self.ln6, self.ln7, self.ln8, self.ln9, self.ln10, self.ln11, self.ln12
 
 
 rospy.init_node('velocity_plot')
@@ -298,9 +361,13 @@ vis = Visualiser()
 sub1 = rospy.Subscriber('velocity_setpoint', Twist, vis.velocity_setpoint_callback)
 sub2 = rospy.Subscriber('/dvl/twist', TwistStamped, vis.velocity_callback)
 sub3 = rospy.Subscriber('pwm_setpoint', Twist, vis.pwm_callback)
+sub4 = rospy.Subscriber('toggle_velocity_plot', Bool, vis.show_plots_callback)
 # sub4 = rospy.Subscriber('sitl_velocity_xyz', Point, vis.NED_callback) 
 
 while not rospy.is_shutdown():
-    ani = FuncAnimation(vis.fig, vis.update_plot, init_func=vis.plot_init)
+
+    # ani = FuncAnimation(vis.fig, vis.update_plot, init_func=vis.plot_init,blit =True)
+    ani = FuncAnimation(vis.fig, vis.update_plot, init_func=vis.plot_init,blit=False)
     plt.show(block=True)
-plt.close() 
+
+
