@@ -7,7 +7,7 @@ from tf.transformations import euler_from_quaternion, euler_matrix
 from mavros_msgs.msg import OverrideRCIn
 from pymavlink import mavutil
 from pymavlink.quaternion import QuaternionBase
-from std_msgs.msg import Bool, Int8, Float32MultiArray, String
+from std_msgs.msg import Bool, Int8, Float32MultiArray, String, Float32
 import time
 
 class MotionControl:
@@ -90,7 +90,7 @@ class MotionControl:
             self.Kd_x = 0
             self.Ki_x = 0
 
-            self.Kp_y = 0
+            self.Kp_y = 1
             self.Kd_y = 0
             self.Ki_y = 0
 
@@ -278,25 +278,31 @@ class MotionControl:
 
 
         # creating subscribers
-        self.sub1 = rospy.Subscriber('motion_control_state',Bool, self.on_off_callback)
+        # self.sub1 = rospy.Subscriber('motion_control_state',Bool, self.on_off_callback)
         # self.sub2 = rospy.Subscriber('/dvl/local_position', PoseWithCovarianceStamped, self.position_callback)
         # self.sub2 = rospy.Subscriber('/dvl/local_position', PoseWithCovarianceStamped, self.position_callback)
         self.sub2 = rospy.Subscriber('/state', PoseWithCovarianceStamped, self.position_callback)
-        self.sub3 = rospy.Subscriber('target_waypoints_list', PoseArray, self.waypoint_list_callback)
-        self.sub4 = rospy.Subscriber('wapoint_index_reset', Int8, self.waypoint_index_callback)
-        self.sub5 = rospy.Subscriber('hold_pose', Bool, self.hold_pose_callback)
-        self.sub6 = rospy.Subscriber('hold_pose_waypoint', PoseStamped, self.hold_pose_waypoint_callback)
+        # self.sub3 = rospy.Subscriber('target_waypoints_list', PoseArray, self.waypoint_list_callback)
+        # self.sub4 = rospy.Subscriber('wapoint_index_reset', Int8, self.waypoint_index_callback)
+        # self.sub5 = rospy.Subscriber('hold_pose', Bool, self.hold_pose_callback)
+        # self.sub6 = rospy.Subscriber('hold_pose_waypoint', PoseStamped, self.hold_pose_waypoint_callback)
         self.sub7 = rospy.Subscriber('controller_gains', Float32MultiArray, self.gui_info_callback)
         # self.sub8 = rospy.Subscriber('sitl_current_velocity', TwistStamped, self.velocity_callback)
         self.sub8 = rospy.Subscriber('/dvl/twist', TwistStamped, self.velocity_callback)
         self.sub9 = rospy.Subscriber('motion_controller_state', String, self.controller_state_callback)
-
+        self.waypoint_sub = rospy.Subscriber('current_waypoint', PoseStamped, self.current_waypoint_callback)
+    
         # creating publishers, for the RViz only simulation
         # self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
         
         # publishingg controller setpoints
-        self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=10)
-        self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=10)
+        self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=1)
+        self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=1)
+        self.pub4= rospy.Publisher('vx_setpoint', Float32, queue_size=1)
+        self.pub5= rospy.Publisher('vy_setpoint', Float32, queue_size=1)
+        self.pub6= rospy.Publisher('vz_setpoint', Float32, queue_size=1)
+        self.pub7= rospy.Publisher('vyaw_setpoint', Float32, queue_size=1)
+        
 
     # whenever the button is hit, toggle the controller on/off
     def on_off_callback(self,msg:Bool):
@@ -355,6 +361,11 @@ class MotionControl:
         elif self.state == "Joystick":
             self.master.set_mode(19) #manual Mode
     
+    def current_waypoint_callback(self,msg:PoseStamped):
+        self.current_waypoint = msg
+        # self.current_waypoint.pose = self.waypoints.poses[self.waypoint_index]
+        _,_,self.waypoint_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
+
 
 
 
@@ -550,6 +561,10 @@ class MotionControl:
 
 
         self.pub2.publish(self.velocity_setpoint)
+        self.pub4.publish(self.vx_setpoint)
+        self.pub5.publish(self.vy_setpoint)
+        self.pub6.publish(self.vz_setpoint)
+        self.pub7.publish(self.vyaw_setpoint)
 
     def publish_pwm_commands(self):
         self.pwm_setpoint.linear.x = self.x_pwm
@@ -790,7 +805,7 @@ class MotionControl:
             self.vx_setpoint = np.clip(self.vx_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
         else: 
             self.x_pwm= np.clip(self.vx_setpoint, -1000,1000)    
-
+ 
     def calc_y_velocity_setpoint(self):
         
         # Transforming ERRORS to BODY FRAME...note: yaw and z error are already in body frame, we assume roll and pitch are negligible
@@ -1161,31 +1176,31 @@ def main():
                     # DETERMINE THE SETPOINT POSE NEED TO MAKE THIS ANOTHER NODE AND INTEGRATE WITH TRAJECTORY?NAV STACK 
 
         
-                    controller.get_current_waypoint()
+                    # controller.get_current_waypoint()
                     
                     # Check if holding a poistion or heading to waypoint 
-                    if controller.hold_pose:
-                        controller.current_waypoint.pose = controller.hold_pose_waypoint
-                        rospy.loginfo_throttle( update_status_interval,f"Holding postion at (x,y,z): {controller.hold_pose_waypoint.position.x:.2f}, {controller.hold_pose_waypoint.position.y:.2f},{controller.hold_pose_waypoint.position.z:.2f}")
-                    else:
-                        controller.get_current_waypoint()
+                    # if controller.hold_pose:
+                    #     controller.current_waypoint.pose = controller.hold_pose_waypoint
+                    #     rospy.loginfo_throttle( update_status_interval,f"Holding postion at (x,y,z): {controller.hold_pose_waypoint.position.x:.2f}, {controller.hold_pose_waypoint.position.y:.2f},{controller.hold_pose_waypoint.position.z:.2f}")
+                    # else:
+                    #     controller.get_current_waypoint()
 
-                        # check if the waypoint is reached
-                        if controller.reached_waypoint():
-                            # if there are additional waypoints increase the waypoint index and get the new waypoint, if there are no new waypoints, hold position at the current waypoint
-                            if controller.waypoint_index < controller.num_waypoints-1:
-                                rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}: x = {controller.current_waypoint.pose.position.x:.2f}, y = {controller.current_waypoint.pose.position.y:.2f}, z = {controller.current_waypoint.pose.position.z:.2f}, yaw = {controller.waypoint_yaw:.2f}")
-                                controller.waypoint_index +=1
+                    #     # check if the waypoint is reached
+                    #     if controller.reached_waypoint():
+                    #         # if there are additional waypoints increase the waypoint index and get the new waypoint, if there are no new waypoints, hold position at the current waypoint
+                    #         if controller.waypoint_index < controller.num_waypoints-1:
+                    #             rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}: x = {controller.current_waypoint.pose.position.x:.2f}, y = {controller.current_waypoint.pose.position.y:.2f}, z = {controller.current_waypoint.pose.position.z:.2f}, yaw = {controller.waypoint_yaw:.2f}")
+                    #             controller.waypoint_index +=1
 
-                                # rospy.loginfo(f"Error Windup: ({controller.sum_error_x}, {controller.sum_error_y}, {controller.sum_error_z}, {controller.sum_error_yaw})")
-                                controller.reset_position_errors()
-                                rospy.loginfo(f"Reset position errors")
+                    #             # rospy.loginfo(f"Error Windup: ({controller.sum_error_x}, {controller.sum_error_y}, {controller.sum_error_z}, {controller.sum_error_yaw})")
+                    #             controller.reset_position_errors()
+                    #             rospy.loginfo(f"Reset position errors")
 
 
-                                controller.get_current_waypoint()
-                                rospy.loginfo(f"Heading to waypoint {controller.waypoint_index +1}: x = {controller.current_waypoint.pose.position.x}, y = {controller.current_waypoint.pose.position.y}, z = {controller.current_waypoint.pose.position.z} , yaw = {controller.waypoint_yaw:.2f}")
-                            else:
-                                rospy.loginfo_throttle(2,f"Reached the last waypoint, holding position at waypoint {controller.waypoint_index +1}:  x = {controller.current_waypoint.pose.position.x}, y = {controller.current_waypoint.pose.position.y}, z = {controller.current_waypoint.pose.position.z} , yaw = {controller.waypoint_yaw:.2f}")
+                    #             controller.get_current_waypoint()
+                    #             rospy.loginfo(f"Heading to waypoint {controller.waypoint_index +1}: x = {controller.current_waypoint.pose.position.x}, y = {controller.current_waypoint.pose.position.y}, z = {controller.current_waypoint.pose.position.z} , yaw = {controller.waypoint_yaw:.2f}")
+                    #         else:
+                    #             rospy.loginfo_throttle(2,f"Reached the last waypoint, holding position at waypoint {controller.waypoint_index +1}:  x = {controller.current_waypoint.pose.position.x}, y = {controller.current_waypoint.pose.position.y}, z = {controller.current_waypoint.pose.position.z} , yaw = {controller.waypoint_yaw:.2f}")
 
                     ################################################################################################################
 
