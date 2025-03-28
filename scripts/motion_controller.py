@@ -28,29 +28,29 @@ class MotionControl:
 
             # POSITION CONTROLLER
             # x-y gains
-            self.Kp_x = 1
-            self.Kd_x = 0.5
-            self.Ki_x = 0.5
+            self.Kp_x = 0
+            self.Kd_x = 0
+            self.Ki_x = 0
 
-            self.Kp_y = 0.2
+            self.Kp_y = 0
             self.Kd_y = 0
-            self.Ki_y = 0.5
+            self.Ki_y = 0
 
             # z gains
-            self.Kp_z = 0.5
+            self.Kp_z = 0
             self.Kd_z = 0 
             self.Ki_z = 0 
 
             # yaw gains 
-            self.Kp_yaw = 0.5 # 0.2
+            self.Kp_yaw = 0
             self.Kd_yaw = 0 
-            self.Ki_yaw = 0.2
+            self.Ki_yaw = 0
 
             # saturation 
             self.velocity_anti_windup_clip = [0,10]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
             self.linear_velocity_clip = [-0.5,0.5] #min and max velocity setpoints
             self.angular_velocity_clip = [-20*np.pi/180, 20*np.pi/180] #[-1,1]#[-10*np.pi/180, 10*np.pi/180] # min and max angular velocity setpoints
-
+            self.pwm_anti_windup_clip_angular = [0,50]
             # xy
             self.kp_v_x = 2000
             self.kd_v_x = 0
@@ -303,6 +303,7 @@ class MotionControl:
         self.pub6= rospy.Publisher('vz_setpoint', Float32, queue_size=1)
         self.pub7= rospy.Publisher('vyaw_setpoint', Float32, queue_size=1)
         
+        
 
     # whenever the button is hit, toggle the controller on/off
     def on_off_callback(self,msg:Bool):
@@ -320,7 +321,7 @@ class MotionControl:
             DEPTH_HOLD = 'ALT_HOLD'
             # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
             # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-            self.master.set_mode(DEPTH_HOLD)
+            # self.master.set_mode(DEPTH_HOLD)
             self.target_depth = self.current_pose.pose.position.z
             self.vx_setpoint = 0
             self.vy_setpoint  = 0
@@ -331,7 +332,7 @@ class MotionControl:
             DEPTH_HOLD = 'ALT_HOLD'
             # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
             # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-            self.master.set_mode(DEPTH_HOLD)
+            # self.master.set_mode(DEPTH_HOLD)
             self.target_depth = self.current_pose.pose.position.z
             self.x_pwm = 0
             self.y_pwm = 0
@@ -342,14 +343,21 @@ class MotionControl:
             DEPTH_HOLD = 'ALT_HOLD'
             # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
             # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-            self.master.set_mode(DEPTH_HOLD)
+            # self.master.set_mode(DEPTH_HOLD)
             self.target_depth = self.current_pose.pose.position.z
 
         elif self.state == "waypoint": 
             DEPTH_HOLD = 'ALT_HOLD'
+            self.current_waypoint.pose.position.x = self.current_pose.pose.position.x
+            self.current_waypoint.pose.position.y = self.current_pose.pose.position.y
+            self.current_waypoint.pose.position.z = self.current_pose.pose.position.z
+            self.current_waypoint.pose.orientation.x = self.current_pose.pose.orientation.x
+            self.current_waypoint.pose.orientation.y = self.current_pose.pose.orientation.y    
+            self.current_waypoint.pose.orientation.z = self.current_pose.pose.orientation.z   
+            self.current_waypoint.pose.orientation.w = self.current_pose.pose.orientation.w              
             # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
             # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-            self.master.set_mode(DEPTH_HOLD)
+            # self.master.set_mode(DEPTH_HOLD)
             # self.target_depth = self.current_pose.pose.position.z
             self.hold_pose = True
 
@@ -358,8 +366,8 @@ class MotionControl:
         elif self.state == "Disabled":
             self.master.set_mode(19) #manual Mode
 
-        elif self.state == "Joystick":
-            self.master.set_mode(19) #manual Mode
+        # elif self.state == "Joystick":
+            # self.master.set_mode(19) #manual Mode
     
     def current_waypoint_callback(self,msg:PoseStamped):
         self.current_waypoint = msg
@@ -1080,10 +1088,10 @@ def setup_signal(master):
     rospy.loginfo("Waiting for the vehicle to arm")
     master.motors_armed_wait()
     rospy.loginfo('Armed!')
-    master.set_mode(19) #manual Mode
+    # master.set_mode(19) #manual Mode
     
     # # set the desired operating mode
-    # DEPTH_HOLD = 'ALT_HOLD'
+    DEPTH_HOLD = 'ALT_HOLD'
     # # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
     # # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
     # master.set_mode(DEPTH_HOLD)
@@ -1103,7 +1111,7 @@ def main():
     master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
 
     # initialize motion controller
-    controller = MotionControl(master = master,mode="sitl")
+    controller = MotionControl(master = master,mode="hardware")
 
     # master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
   
@@ -1208,19 +1216,19 @@ def main():
                         controller.calculate_position_errors()
 
                         # test to see if target attitude works if not switch to yaw controller
-                        controller.set_target_attitude(yaw=controller.target_yaw)
+                        # controller.set_target_attitude(yaw=controller.target_yaw)
                         # controller.calc_yaw_velocity_setpoint_final()
                         
                         controller.calc_x_velocity_setpoint()
                         controller.calc_y_velocity_setpoint()
-                        # controller.calc_yaw_velocity_setpoint_final()
+                        controller.calc_yaw_velocity_setpoint_final()
 
                         controller.velocity_controller()
                         
                         
                         # for sending the actual control via manual mode
-                        send_control_manual(master, controller.x_pwm,controller.y_pwm)
-                        # send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
+                        # send_control_manual(master, controller.x_pwm,controller.y_pwm)
+                        send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
                         
                         # set depth
                         controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
