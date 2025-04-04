@@ -11,21 +11,18 @@ from std_msgs.msg import Bool, Int8, Float32MultiArray, String, Float32
 import time
 
 class MotionControl:
-    def __init__(self,master, mode = "hardware"): 
+    def __init__(self,master, system = "hardware"): 
+        self.system = system
         self.state = "Disabled"
         self.send_signal = "manual"
         self.master = master
         self.boot_time = time.time()
-        self.mode =1
-        self.delta =5
-        self.target_depth = 1
+        self.mode = 1
+        self.delta = 5
+        self.target_depth = None
 
         self.num_errors = 15 # stores the last n errors for integral term
-        if mode == "hardware": 
-            self.rviz_sim = False
-            self.sitl = False
-            self.hardware = True
-
+        if system == "hardware": 
             # POSITION CONTROLLER
             # x-y gains
             self.Kp_x = 0
@@ -50,7 +47,9 @@ class MotionControl:
             self.velocity_anti_windup_clip = [0,10]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
             self.linear_velocity_clip = [-0.5,0.5] #min and max velocity setpoints
             self.angular_velocity_clip = [-20*np.pi/180, 20*np.pi/180] #[-1,1]#[-10*np.pi/180, 10*np.pi/180] # min and max angular velocity setpoints
-            self.pwm_anti_windup_clip_angular = [0,50]
+        
+
+
             # xy
             self.kp_v_x = 2000
             self.kd_v_x = 0
@@ -60,42 +59,37 @@ class MotionControl:
             self.kd_v_y = 0
             self.ki_v_y = 500
 
-
             # z gains
             self.kp_v_z = 300
             self.kd_v_z = 0
             self.ki_v_z = 0
 
             # yaw
-            self.kp_v_yaw = 0
+            self.kp_v_yaw = 2000
             self.kd_v_yaw = 0
             self.ki_v_yaw = 0
 
             # saturation 
             self.pwm_anti_windup_clip = [0,50]  # 500# prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
+            self.pwm_anti_windup_clip_angular = [0,50]
             self.linear_pwm_clip = [1000, 2000] #min and max pwm setpoints
             self.angular_pwm_clip = [1000, 2000] # min and max angular velocity setpoints
-
             self.pwm_clip = [-1000,1000]
         
 
-        if mode == "sitl": 
-            self.rviz_sim = False
-            self.sitl = False
-            self.hardware = True
-
+        elif system  == "sitl": 
+        
             # POSITION CONTROLLER
             # x-y gains
-            self.Kp_x = 1
+            self.Kp_x = 0.25
             self.Kd_x = 0
             self.Ki_x = 0
 
-            self.Kp_y = 1
+            self.Kp_y = 0.25
             self.Kd_y = 0
             self.Ki_y = 0
 
             # z gains
-            self.Kp_z = 0
             self.Kd_z = 0 
             self.Ki_z = 0 
 
@@ -110,13 +104,13 @@ class MotionControl:
             self.angular_velocity_clip = [-5*np.pi/180, 5*np.pi/180] #[-1,1]#[-10*np.pi/180, 10*np.pi/180] # min and max angular velocity setpoints
 
             # xy
-            self.kp_v_x = 300
+            self.kp_v_x = 200
             self.kd_v_x = 0
-            self.ki_v_x = 50
+            self.ki_v_x = 150
 
-            self.kp_v_y = 300
+            self.kp_v_y = 200
             self.kd_v_y = 0
-            self.ki_v_y = 50
+            self.ki_v_y = 150
 
 
             # z gains
@@ -125,7 +119,7 @@ class MotionControl:
             self.ki_v_z = 50
 
             # yaw
-            self.kp_v_yaw = 350
+            self.kp_v_yaw = 200
             self.kd_v_yaw = 0
             self.ki_v_yaw = 150
 
@@ -138,14 +132,62 @@ class MotionControl:
 
             self.pwm_clip = [-1000,1000]
           
-        # Activating/deactivating controller
-        self.invoked = False
+        elif system  == "custom sim": 
+        
+            # POSITION CONTROLLER
+            # x-y gains
+            self.Kp_x = 0.25
+            self.Kd_x = 0
+            self.Ki_x = 0
 
-        # used to activate the manual veocity setpoint mode, when true it does not update the velocity setpoint based on a position
-        self.velocity_setpoint_testing = False
+            self.Kp_y = 0.25
+            self.Kd_y = 0
+            self.Ki_y = 0
 
-        self.pwm_testing = False
+            # z gains
+            self.Kd_z = 0 
+            self.Ki_z = 0 
 
+            # yaw gains 
+            self.Kp_yaw = 0.5 # 0.2
+            self.Kd_yaw = 0 
+            self.Ki_yaw = 0
+
+            # saturation 
+            self.velocity_anti_windup_clip = [0,10]  # prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
+            self.linear_velocity_clip = [-0.2,0.2] #min and max velocity setpoints
+            self.angular_velocity_clip = [-10*np.pi/180, 10*np.pi/180] #[-1,1]#[-10*np.pi/180, 10*np.pi/180] # min and max angular velocity setpoints
+
+            # xy
+            self.kp_v_x = 200
+            self.kd_v_x = 0
+            self.ki_v_x = 150
+
+            self.kp_v_y = 200
+            self.kd_v_y = 0
+            self.ki_v_y = 150
+
+
+            # z gains
+            self.kp_v_z = 300
+            self.kd_v_z = 0
+            self.ki_v_z = 50
+
+            # yaw
+            self.kp_v_yaw = 200
+            self.kd_v_yaw = 0
+            self.ki_v_yaw = 150
+
+            # saturation 
+            self.pwm_anti_windup_clip = [0,50]
+            self.pwm_anti_windup_clip_angular = [0,50]
+              # 500# prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
+            self.linear_pwm_clip = [1000, 2000] #min and max pwm setpoints
+            self.angular_pwm_clip = [1000, 2000] # min and max angular velocity setpoints
+
+            self.pwm_clip = [-1000,1000]
+          
+        
         # set the rates and frequencies
         self.frequency = 10 
         self.rate = rospy.Rate(self.frequency)  # 10 Hz
@@ -167,23 +209,19 @@ class MotionControl:
         self.current_velocity = Twist()
            
 
-        # used to override the current waypoint pose and set it the hold pose when hold.pose = True
-        self.hold_pose = False
-        self.hold_pose_waypoint = Pose()
-
         # waypoint management 
-        self.waypoints = PoseArray()    # stores the list of waypoints
-        self.current_waypoint = PoseStamped()   # stores the current waypoint
+        self.current_waypoint = None
+        # self.current_waypoint = PoseStamped()   # stores the current waypoint
         self.waypoint_yaw = 0
         self.waypoint_index = 0     # stores the index of the current waypoint
-        self.num_waypoints = 0  # stores the number of waypoints
+
         self.lookahead_waypoint = PoseStamped()
 
-        # Waypoint Thresholds
-        self.position_threshold = 0.5   
-        self.z_threshold = 1
-        degrees_threshold = 10
-        self.yaw_threshold = degrees_threshold * np.pi / 180
+        # # Waypoint Thresholds
+        # self.position_threshold = 0.5   
+        # self.z_threshold = 1
+        # degrees_threshold = 10
+        # self.yaw_threshold = degrees_threshold * np.pi / 180
 
 
 
@@ -264,30 +302,26 @@ class MotionControl:
         self.last_n_errors_vz = [] 
         self.last_n_errors_vyaw = [] 
 
-        # ##################
-        # #  no longer needed
-        # self.x_control = 0
-        # self.y_control = 0
-        # self.z_control = 0
-        # self.roll_control = 0
-        # self.pitch_control = 0
-        # self.yaw_control = 0
-        # ########################
+    
 
+        self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=1)
+        self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=1)
+        self.pub4= rospy.Publisher('vx_setpoint', Float32, queue_size=1)
+        self.pub5= rospy.Publisher('vy_setpoint', Float32, queue_size=1)
+        self.pub6= rospy.Publisher('vz_setpoint', Float32, queue_size=1)
+        self.pub7= rospy.Publisher('vyaw_setpoint', Float32, queue_size=1)
+        self.pub8= rospy.Publisher('x_pwm', Float32, queue_size=1)
+        self.pub9= rospy.Publisher('y_pwm', Float32, queue_size=1)
+        self.pub10= rospy.Publisher('z_pwm', Float32, queue_size=1)
+        self.pub11= rospy.Publisher('yaw_pwm', Float32, queue_size=1)
 
-
-
+        self.pub12= rospy.Publisher('vx', Float32, queue_size=1)
+        self.pub13= rospy.Publisher('vy', Float32, queue_size=1)
+        self.pub14= rospy.Publisher('vz', Float32, queue_size=1)
+        self.pub15= rospy.Publisher('vyaw', Float32, queue_size=1)
         # creating subscribers
-        # self.sub1 = rospy.Subscriber('motion_control_state',Bool, self.on_off_callback)
-        # self.sub2 = rospy.Subscriber('/dvl/local_position', PoseWithCovarianceStamped, self.position_callback)
-        # self.sub2 = rospy.Subscriber('/dvl/local_position', PoseWithCovarianceStamped, self.position_callback)
         self.sub2 = rospy.Subscriber('/state', PoseWithCovarianceStamped, self.position_callback)
-        # self.sub3 = rospy.Subscriber('target_waypoints_list', PoseArray, self.waypoint_list_callback)
-        # self.sub4 = rospy.Subscriber('wapoint_index_reset', Int8, self.waypoint_index_callback)
-        # self.sub5 = rospy.Subscriber('hold_pose', Bool, self.hold_pose_callback)
-        # self.sub6 = rospy.Subscriber('hold_pose_waypoint', PoseStamped, self.hold_pose_waypoint_callback)
         self.sub7 = rospy.Subscriber('controller_gains', Float32MultiArray, self.gui_info_callback)
-        # self.sub8 = rospy.Subscriber('sitl_current_velocity', TwistStamped, self.velocity_callback)
         self.sub8 = rospy.Subscriber('/dvl/twist', TwistStamped, self.velocity_callback)
         self.sub9 = rospy.Subscriber('motion_controller_state', String, self.controller_state_callback)
         self.waypoint_sub = rospy.Subscriber('current_waypoint', PoseStamped, self.current_waypoint_callback)
@@ -295,59 +329,57 @@ class MotionControl:
         # creating publishers, for the RViz only simulation
         # self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
         
-        # publishingg controller setpoints
-        self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=1)
-        self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=1)
-        self.pub4= rospy.Publisher('vx_setpoint', Float32, queue_size=1)
-        self.pub5= rospy.Publisher('vy_setpoint', Float32, queue_size=1)
-        self.pub6= rospy.Publisher('vz_setpoint', Float32, queue_size=1)
-        self.pub7= rospy.Publisher('vyaw_setpoint', Float32, queue_size=1)
-        
-        
+        # publishing controller setpoints
+        # self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=1)
+        # self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=1)
+        # self.pub4= rospy.Publisher('vx_setpoint', Float32, queue_size=1)
+        # self.pub5= rospy.Publisher('vy_setpoint', Float32, queue_size=1)
+        # self.pub6= rospy.Publisher('vz_setpoint', Float32, queue_size=1)
+        # self.pub7= rospy.Publisher('vyaw_setpoint', Float32, queue_size=1)
+        # self.pub8= rospy.Publisher('x_pwm', Float32, queue_size=1)
+        # self.pub9= rospy.Publisher('y_pwm', Float32, queue_size=1)
+        # self.pub10= rospy.Publisher('z_pwm', Float32, queue_size=1)
+        # self.pub11= rospy.Publisher('yaw_pwm', Float32, queue_size=1)
 
-    # whenever the button is hit, toggle the controller on/off
-    def on_off_callback(self,msg:Bool):
-        self.invoked = msg.data
-        if self.invoked: 
-            rospy.loginfo("Motion controller activated")
-        elif not self.invoked:
-            rospy.loginfo("Motion controller deactivated")
-   
+        # self.pub12= rospy.Publisher('vx', Float32, queue_size=1)
+        # self.pub13= rospy.Publisher('vy', Float32, queue_size=1)
+        # self.pub14= rospy.Publisher('vz', Float32, queue_size=1)
+        # self.pub15= rospy.Publisher('vyaw', Float32, queue_size=1)
+       
+        
+        
     # might need to initialize certain params for the state that im in 
     def controller_state_callback(self, msg:String):
+        self.last_state = self.state
         self.state = msg.data
         rospy.loginfo(f"{self.state} mode is active")
-        if self.state == "velocity":
-            DEPTH_HOLD = 'ALT_HOLD'
-            # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
-            # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-            # self.master.set_mode(DEPTH_HOLD)
-            self.target_depth = self.current_pose.pose.position.z
+        if self.state == "Disabled":
+            self.erase_target_depth()
+            self.current_waypoint =None
+
+        elif self.state == "Initialized": 
+            self.target_depth = self.current_pose.pose.position.z  
+            self.current_waypoint =None          
+
+        elif self.state == "velocity":
+            self.erase_target_depth()
             self.vx_setpoint = 0
             self.vy_setpoint  = 0
             self.vz_setpoint  = 0
             self.vyaw_setpoint  = 0
 
-        elif self.state == "manual pwm":
-            DEPTH_HOLD = 'ALT_HOLD'
-            # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
-            # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-            # self.master.set_mode(DEPTH_HOLD)
-            self.target_depth = self.current_pose.pose.position.z
+        elif self.state == "manual pwm":           
+            self.erase_target_depth()
             self.x_pwm = 0
             self.y_pwm = 0
             self.z_pwm = 500
             self.yaw_pwm = 0
-
-        elif self.state == "Initialized": 
-            DEPTH_HOLD = 'ALT_HOLD'
-            # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
-            # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-            # self.master.set_mode(DEPTH_HOLD)
-            self.target_depth = self.current_pose.pose.position.z
+        
 
         elif self.state == "waypoint": 
-            DEPTH_HOLD = 'ALT_HOLD'
+            self.erase_target_depth()
+            self.current_waypoint = PoseStamped()
+
             self.current_waypoint.pose.position.x = self.current_pose.pose.position.x
             self.current_waypoint.pose.position.y = self.current_pose.pose.position.y
             self.current_waypoint.pose.position.z = self.current_pose.pose.position.z
@@ -355,41 +387,19 @@ class MotionControl:
             self.current_waypoint.pose.orientation.y = self.current_pose.pose.orientation.y    
             self.current_waypoint.pose.orientation.z = self.current_pose.pose.orientation.z   
             self.current_waypoint.pose.orientation.w = self.current_pose.pose.orientation.w              
-            # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
-            # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-            # self.master.set_mode(DEPTH_HOLD)
-            # self.target_depth = self.current_pose.pose.position.z
-            self.hold_pose = True
-
-
-
-        elif self.state == "Disabled":
-            self.master.set_mode(19) #manual Mode
-
-        # elif self.state == "Joystick":
-            # self.master.set_mode(19) #manual Mode
+    
+        elif self.state == "Joystick":
+            self.erase_target_depth()
     
     def current_waypoint_callback(self,msg:PoseStamped):
+        '''function gets the current waypoint from the ros topic'''
+        self.current_waypoint = PoseStamped()   # stores the current waypoint
         self.current_waypoint = msg
-        # self.current_waypoint.pose = self.waypoints.poses[self.waypoint_index]
         _,_,self.waypoint_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
-
-
-
-
-
-    def waypoint_index_callback(self,msg:Int8):
-        self.waypoint_index = msg.data
-        rospy.loginfo(f"Waypoint index reset to waypoint {self.waypoint_index+1}")
-    
-    def hold_pose_waypoint_callback(self,msg:PoseStamped):
-        self.hold_pose_waypoint = msg.pose
-
-    def hold_pose_callback(self,msg:Bool):
-        self.hold_pose = msg.data
-        # rospy.loginfo(f"Waypoint index reset to waypoint {self.waypoint_index+1}")
+        rospy.loginfo("motion controller received new target waypoint")
 
     def gui_info_callback(self,msg: Float32MultiArray):
+        ''' changes various parameters '''
         if msg.data[0]==1:
             
             self.Kp_x = msg.data[1]
@@ -464,15 +474,14 @@ class MotionControl:
 
             self.vyaw_setpoint = msg.data[4]*np.pi/180
 
-            self.vx_setpoint = np.clip(self.vx_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
-            self.vy_setpoint = np.clip(self.vy_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
-            self.vz_setpoint = np.clip(self.vz_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
+            self.vx_setpoint = round(np.clip(self.vx_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1]),3)
+            self.vy_setpoint = round(np.clip(self.vy_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1]),3)
+            self.vz_setpoint = round(np.clip(self.vz_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1]),3)
             self.vyaw_setpoint = np.clip(self.vyaw_setpoint, self.angular_velocity_clip[0],self.angular_velocity_clip[1])
-            
             self.reset_velocity_errors()
             
         
-            rospy.loginfo(f"Preparing for velocity test\nvx setpoint = {self.vx_setpoint }m/s\nvy setpoint = {self.vy_setpoint} m/s\nvz setpoint = {self.vz_setpoint} m/s\nangular velocity setpoint = { msg.data[4]} deg/s = { self.vyaw_setpoint} rad/s")
+            rospy.loginfo(f"Preparing for velocity test\nvx setpoint = {self.vx_setpoint} m/s\nvy setpoint = {self.vy_setpoint} m/s\nvz setpoint = {self.vz_setpoint} m/s\nangular velocity setpoint = { round(self.vyaw_setpoint*180/np.pi,3)} deg/s = {self.vyaw_setpoint} rad/s")
 
         elif msg.data[0]==6:
         
@@ -489,7 +498,6 @@ class MotionControl:
             self.yaw_pwm = int(msg.data[4])
             rospy.loginfo("Received manual PWM signals")
 
-
     def position_callback(self, msg:PoseWithCovarianceStamped):
 
         # Extract position (x, y) from the message
@@ -501,48 +509,15 @@ class MotionControl:
         q = msg.pose.pose.orientation
         self.current_roll,self.current_pitch,self.current_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-        # self.attitude_transform = np.array(euler_matrix(self.current_roll,self.current_pitch,self.current_yaw))[:3,:3]
-        # rospy.loginfo(self.attitude_transform.shape)
-
-
     def velocity_callback(self, msg:TwistStamped):
         self.current_velocity = msg.twist
-        
-    def waypoint_list_callback(self, msg:PoseArray):
-        # checks if it is a list and get how many waypoint
-        if isinstance(msg.poses, list):
-            self.num_waypoints = len(msg.poses)
-            rospy.loginfo("Received " + str(self.num_waypoints) + " waypoints")
-        else:
-            self.num_waypoints = 1
-            rospy.loginfo("Received 1 waypoint")
 
-
-        # assigns waypoints
-        self.waypoints = msg
-
-    def get_current_waypoint(self):
-        #  accounts for the case where there is only 1 waypoint 
-        if self.num_waypoints == 1:
-            self.waypoint_index = 0
-            self.current_waypoint.header.frame_id = self.waypoints.header.frame_id
-            self.current_waypoint.pose = self.waypoints.poses[0]
-            
-            # self.current_waypoint.pose
-            # _,_,self.waypoint_yaw = euler_from_quaternion(self.current_waypoint.pose
-            _,_,self.waypoint_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
-
-            
-
-        elif self.num_waypoints > 1:
-            self.current_waypoint.header.frame_id = self.waypoints.header.frame_id
-            self.current_waypoint.pose = self.waypoints.poses[self.waypoint_index]
-            _,_,self.waypoint_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
-
-            
-
-        return self.current_waypoint
-
+        vyaw = self.current_velocity.angular.z*180/np.pi
+        self.pub12.publish(self.current_velocity.linear.x)
+        self.pub13.publish(self.current_velocity.linear.y)
+        self.pub14.publish(self.current_velocity.linear.z)
+        self.pub15.publish(vyaw)
+    
     def get_lookahead_waypoint(self):
     
         self.lookahead_waypoint.header.frame_id = self.waypoints.header.frame_id
@@ -552,14 +527,6 @@ class MotionControl:
         return self.lookahead_waypoint
 
     def publish_velocity_setpoints(self):
-        
-        # self.velocity_command.twist.linear.x = self.vx_setpoint
-        # self.velocity_command.twist.linear.y = self.vy_setpoint
-        # self.velocity_command.twist.linear.z = self.vz_setpoint
-        # self.velocity_command.twist.angular.x= 0
-        # self.velocity_command.twist.angular.y = 0
-        # self.velocity_command.twist.angular.z = self.vyaw_setpoint
-
         self.velocity_setpoint.linear.x = self.vx_setpoint
         self.velocity_setpoint.linear.y = self.vy_setpoint
         self.velocity_setpoint.linear.z = self.vz_setpoint
@@ -567,12 +534,14 @@ class MotionControl:
         self.velocity_setpoint.angular.y = 0
         self.velocity_setpoint.angular.z = self.vyaw_setpoint
 
+        vyaw = self.vyaw_setpoint *180/np.pi
 
         self.pub2.publish(self.velocity_setpoint)
         self.pub4.publish(self.vx_setpoint)
         self.pub5.publish(self.vy_setpoint)
         self.pub6.publish(self.vz_setpoint)
-        self.pub7.publish(self.vyaw_setpoint)
+        self.pub7.publish(vyaw)
+       
 
     def publish_pwm_commands(self):
         self.pwm_setpoint.linear.x = self.x_pwm
@@ -581,9 +550,14 @@ class MotionControl:
         self.pwm_setpoint.angular.x = 0
         self.pwm_setpoint.angular.y = 0
         self.pwm_setpoint.angular.z = self.yaw_pwm
+
         self.pub3.publish(self.pwm_setpoint)
+        self.pub8.publish(self.x_pwm)
+        self.pub9.publish(self.y_pwm)
+        self.pub10.publish(self.z_pwm)
+        self.pub11.publish(self.yaw_pwm)
 
-
+    '''
     # reaching waypoint
     def reached_position(self):
         waypoint_distance = np.linalg.norm((self.error_x, self.error_y, self.error_z))
@@ -616,7 +590,7 @@ class MotionControl:
             return True
         else:
             return False
-
+    '''
 
     #  calculating errors
     def calculate_integral(self,a,b,h, method="trapezoidal"):
@@ -635,7 +609,7 @@ class MotionControl:
         self.prev_error_z = 0.0
         self.prev_error_yaw = 0.0
 
-         # erivatives of error in NED FRAME
+        # Derivatives of error in NED FRAME
         self.dedx = 0
         self.dedy = 0
         self.dedz = 0
@@ -672,15 +646,17 @@ class MotionControl:
         # self.last_n_errors_vz = [] 
         # self.last_n_errors_vyaw = [] 
 
-
     def calculate_position_errors(self):
 
         # calculate the current yaw
         _,_, self.current_yaw = euler_from_quaternion([self.current_pose.pose.orientation.x,self.current_pose.pose.orientation.y, self.current_pose.pose.orientation.z, self.current_pose.pose.orientation.w])
 
         # calculate the target yaw
-        _,_,self.target_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
+        # _,_,self.target_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
 
+        self.target_yaw = self.waypoint_yaw 
+
+        
         # calculate position errors in the NED FRAME
         self.error_x = self.current_waypoint.pose.position.x - self.current_pose.pose.position.x
         self.error_y = self.current_waypoint.pose.position.y - self.current_pose.pose.position.y
@@ -688,12 +664,14 @@ class MotionControl:
 
         # calculate the yaw error to final orientation
         self.error_yaw = self.target_yaw - self.current_yaw
+        
+
          # Normalize yaw error to [-pi, pi] range
         if self.error_yaw > np.pi:
             self.error_yaw -= 2 * np.pi
         elif self.error_yaw < -np.pi:
             self.error_yaw+= 2 * np.pi
-
+        # rospy.loginfo(f"yaw error = {self.error_yaw}")
 
         # Calculate the derivative of the error in the NED FRAME
         self.dedx = (self.error_x - self.prev_error_x) / self.dt
@@ -708,7 +686,6 @@ class MotionControl:
         self.sum_error_yaw += self.calculate_integral(a = self.prev_error_yaw, b = self.error_yaw, h = self.dt) # to final orientation
 
         
-
         # anti windup for integral
         self.sum_error_x = np.clip(self.sum_error_x, self.velocity_anti_windup_clip[0],self.velocity_anti_windup_clip[1])
         self.sum_error_y = np.clip(self.sum_error_y, self.velocity_anti_windup_clip[0],self.velocity_anti_windup_clip[1])
@@ -720,7 +697,6 @@ class MotionControl:
         self.prev_error_y = self.error_y
         self.prev_error_z = self.error_z
         self.prev_error_yaw = self.error_yaw #to final orientation
-
           
     def calculate_velocity_errors(self):
         # velocity errors  Assumed to be velocity in the robot frame
@@ -731,16 +707,45 @@ class MotionControl:
         
 
         # Calculate the derivative of the velocity error in the NED FRAME
-        # self.current_filter_estimate_x_pwm = (self.filter_coefficient*self.previous_filter_estimate_x_pwm)+(1-self.filter_coefficient)*(self.error_vx - self.prev_error_vx)
-        # self.previous_filter_estimate_x_pwm = self.current_filter_estimate_x_pwm
-
-        # self.vdedx = self.current_filter_estimate_x_pwm / self.dt
-
         self.vdedx = (self.error_vx - self.prev_error_vx) / self.dt
         self.vdedy = (self.error_vy - self.prev_error_vy) / self.dt
         self.vdedz = (self.error_vz - self.prev_error_vz) / self.dt
         self.vdedyaw = (self.error_vyaw - self.prev_error_vyaw) / self.dt
-      
+        
+        # calulating integral of the error in the NED FRAME using the trapezoidal method for the area
+
+        self.sum_error_vx += self.calculate_integral(a = self.prev_error_vx, b = self.error_vx, h = self.dt)
+        self.sum_error_vy += self.calculate_integral(a = self.prev_error_vy, b = self.error_vy, h = self.dt)
+        self.sum_error_vz += self.calculate_integral(a = self.prev_error_vz, b = self.error_vz, h = self.dt)
+        self.sum_error_vyaw += self.calculate_integral(a = self.prev_error_vyaw, b = self.error_vyaw, h = self.dt)
+
+        # anti windup for integral
+        self.sum_error_vx = np.clip(self.sum_error_vx, self.pwm_anti_windup_clip[0],self.pwm_anti_windup_clip[1])
+        self.sum_error_vy = np.clip(self.sum_error_vy, self.pwm_anti_windup_clip[0],self.pwm_anti_windup_clip[1])
+        self.sum_error_vz = np.clip(self.sum_error_vz, self.pwm_anti_windup_clip[0],self.pwm_anti_windup_clip[1])
+        self.sum_error_vyaw = np.clip(self.sum_error_vyaw, self.pwm_anti_windup_clip_angular[0],self.pwm_anti_windup_clip_angular[1])
+
+        # Update previous velocity errors 
+        self.prev_error_vx = self.error_vx
+        self.prev_error_vy = self.error_vy
+        self.prev_error_vz = self.error_vz
+        self.prev_error_vyaw = self.error_vyaw
+
+        
+        # # just for the simulation 
+        # if self.system == "sitl":
+        #     if self.vx_setpoint == 0:
+        #         self.sum_error_vx = 0
+        #     if self.vy_setpoint == 0:
+        #         self.sum_error_vy = 0
+        #     if self.vz_setpoint == 0:
+        #         self.sum_error_vz = 0
+        #     if self.vyaw_setpoint == 0:
+        #         self.sum_error_vyaw = 0
+
+        # attempted an alternative method for integral here
+
+        '''
         # rospy.loginfo_throttle(1,"getting to integral")
         # calulating approximate integral of the error in the NED FRAME, just the running sum 
         # self.last_n_errors_vx.append(self.error_vx)
@@ -767,32 +772,10 @@ class MotionControl:
        
 
         # rospy.loginfo_throttle(1,"getting past integral")
-        
-        # calulating integral of the error in the NED FRAME using the trapezoidal method for the area
-
-        self.sum_error_vx += self.calculate_integral(a = self.prev_error_vx, b = self.error_vx, h = self.dt)
-        self.sum_error_vy += self.calculate_integral(a = self.prev_error_vy, b = self.error_vy, h = self.dt)
-        self.sum_error_vz += self.calculate_integral(a = self.prev_error_vz, b = self.error_vz, h = self.dt)
-        self.sum_error_vyaw += self.calculate_integral(a = self.prev_error_vyaw, b = self.error_vyaw, h = self.dt)
-
-        # anti windup for integral
-        self.sum_error_vx = np.clip(self.sum_error_vx, self.pwm_anti_windup_clip[0],self.pwm_anti_windup_clip[1])
-        self.sum_error_vy = np.clip(self.sum_error_vy, self.pwm_anti_windup_clip[0],self.pwm_anti_windup_clip[1])
-        self.sum_error_vz = np.clip(self.sum_error_vz, self.pwm_anti_windup_clip[0],self.pwm_anti_windup_clip[1])
-        self.sum_error_vyaw = np.clip(self.sum_error_vyaw, self.pwm_anti_windup_clip_angular[0],self.pwm_anti_windup_clip_angular[1])
-
-        # Update previous velocity errors 
-        self.prev_error_vx = self.error_vx
-        self.prev_error_vy = self.error_vy
-        self.prev_error_vz = self.error_vz
-        self.prev_error_vyaw = self.error_vyaw
-    
-    
-    
+        '''    
     
     
     #   calculating velocity setpoints from position errors
-
     def calc_x_velocity_setpoint(self):
         # Transforming ERRORS to BODY FRAME...note: yaw and z error are already in body frame, we assume roll and pitch are negligible
         ex = np.cos(self.current_yaw) * self.error_x  + np.sin(self.current_yaw) * self.error_y
@@ -808,11 +791,9 @@ class MotionControl:
 
         # calculate control and saturate to max desired velocities
         self.vx_setpoint = self.Kp_x * ex + self.Kd_x * dedx + self.Ki_x * sum_ex
-        if self.mode == 1:
 
-            self.vx_setpoint = np.clip(self.vx_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
-        else: 
-            self.x_pwm= np.clip(self.vx_setpoint, -1000,1000)    
+        # saturating to max velcoity 
+        self.vx_setpoint = np.clip(self.vx_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1]) 
  
     def calc_y_velocity_setpoint(self):
         
@@ -828,18 +809,16 @@ class MotionControl:
 
         # saturate to max desired velocities
         self.vy_setpoint = self.Kp_y * ey + self.Kd_y * dedy + self.Ki_y * sum_ey
-        if self.mode == 1:
 
-            self.vy_setpoint = np.clip(self.vy_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
-        else: 
-            self.y_pwm= np.clip(self.vy_setpoint, -1000,1000)   
+        self.vy_setpoint = round(np.clip(self.vy_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1]),3)
      
     def calc_z_velocity_setpoint(self):
-        # self.yaw_control = self.Kp_yaw * self.error_yaw + self.Kd_yaw * self.dedyaw + self.Ki_yaw * self.sum_error_yaw
+        # less calculations here because it is already in the right frame
         self.vz_setpoint = self.Kp_z * self.error_z + self.Kd_z * self.dedz + self.Ki_z * self.sum_error_z
-        self.vz_setpoint = np.clip(self.vz_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1])
+        self.vz_setpoint = round(np.clip(self.vz_setpoint, self.linear_velocity_clip[0],self.linear_velocity_clip[1]),3)
        
     def calc_yaw_velocity_setpoint_heading(self):
+        # use this if you want to face towards the waypoint
 
         # calculate heading to get to waypoint
         self.heading = np.arctan2(np.array(self.error_y),np.array(self.error_x))
@@ -856,9 +835,10 @@ class MotionControl:
         self.vyaw_setpoint = np.clip(self.vyaw_setpoint, self.angular_velocity_clip[0],self.angular_velocity_clip[1])
 
     def calc_yaw_velocity_setpoint_final(self):
-
-        self.vyaw_setpoint = self.Kp_yaw * self.error_yaw * self.Kd_yaw * self.dedyaw * self.Ki_yaw * self.sum_error_yaw
+        # use this if the intermediate waypoint is the desired orientation
+        self.vyaw_setpoint = self.Kp_yaw * self.error_yaw + self.Kd_yaw * self.dedyaw + self.Ki_yaw * self.sum_error_yaw
         self.vyaw_setpoint = np.clip(self.vyaw_setpoint, self.angular_velocity_clip[0],self.angular_velocity_clip[1])
+        # rospy.loginfo(f"v yaw setpoint = {self.vyaw_setpoint*180/np.pi} ")
     
 
 
@@ -871,6 +851,14 @@ class MotionControl:
             self.x_pwm = int(np.clip(x_control,self.pwm_clip[0], self.pwm_clip[1]))
         elif self.send_signal == "rc":
             self.x_pwm = int(np.clip(1500+x_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1]))
+        
+        
+        if self.system == "sitl" and self.vx_setpoint ==0:
+            self.x_pwm = 0
+
+        # rospy.loginfo_throttle(2,f"x accumulated error: {round(self.sum_error_vx,3)}")
+        # rospy.loginfo_throttle(2,f"x integral contribution: {round(self.ki_v_x * self.sum_error_vx,2)}")
+        # rospy.loginfo_throttle(2,f"x_pwm = {self.x_pwm}")
 
     def calc_y_pwm(self):
         y_control = self.kp_v_y * self.error_vy+ self.kd_v_y * self.vdedy + self.ki_v_y * self.sum_error_vy
@@ -878,6 +866,15 @@ class MotionControl:
             self.y_pwm = int(np.clip(y_control,self.pwm_clip[0], self.pwm_clip[1]))
         elif self.send_signal == "rc":
             self.y_pwm = int(np.clip(1500+y_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1]))
+
+        if self.system == "sitl" and self.vy_setpoint ==0:
+            self.y_pwm = 0
+
+
+        # rospy.loginfo_throttle(2,f"y accumulated error: {round(self.sum_error_vy,3)}")
+        # rospy.loginfo_throttle(2,f"y integral contribution: {round(self.ki_v_y * self.sum_error_vy,2)}")
+        # rospy.loginfo_throttle(2,f"y_pwm = {self.y_pwm}")
+                               
         # self.y_pwm = int(np.clip(1500+y_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1]))
 
     def calc_z_pwm(self):
@@ -894,68 +891,30 @@ class MotionControl:
             self.yaw_pwm = int(np.clip(yaw_control,self.pwm_clip[0], self.pwm_clip[1]))
         elif self.send_signal == "rc":
             self.yaw_pwm = int(np.clip(1500+yaw_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1]))
-        # self.yaw_pwm = int(np.clip(1500+yaw_control, self.linear_pwm_clip[0],self.linear_pwm_clip[1])) # may need to adjust the clip values
-
+     
     def calc_all_pwm(self):
         self.calc_x_pwm()
         self.calc_y_pwm()
         self.calc_z_pwm()
         self.calc_yaw_pwm()
 
-    def position_controller_RTR(self):
-        # tries to reach waypoint
-        self.calculate_position_errors()
-
-        self.calc_x_velocity_setpoint()
-        # self.calc_y_velocity_setpoint()
-
-        # self.set_target_depth(-1*self.current_waypoint.pose.position.z)
-
-        self.calc_z_velocity_setpoint()
-        if self.reached_position():
-            self.calc_yaw_velocity_setpoint_final()
-        else:
-            self.calc_yaw_velocity_setpoint_heading()
-            if self.heading_error > np.pi/20:
-                self.vx_setpoint = 0
-
-    
-
     def velocity_controller(self):
         # outputs a joystick signal to send to the robot tries to reach setpoint velocity
 
-
-        # rospy.loginfo_throttle(10,"velocity controller is active")
         # compute velocity error compared to setpoint
         self.calculate_velocity_errors()
         # computeall pwm signals to send 
         self.calc_all_pwm()
 
-        # controller.calculate_pwm_output()
-
-        # for logging to graphS
+        # for logging to graphs
         self.publish_velocity_setpoints()
         self.publish_pwm_commands()
-
-        # for sending the actual control via manual mode
-        # send_control_manual(self.x_pwm,self.y_pwm, self.z_pwm, self.yaw_pwm, master)
-
-        # rospy.loginfo_throttle(2,"error: x=%.2f, y=%.2f, z=%.2f" ,self.error_vx, self.error_vy, self.error_vz) 
-        # rospy.loginfo_throttle(10,"velocity controller is active")
-        # rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.vx_setpoint, self.vy_setpoint, self.vz_setpoint) 
-        # rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.current_velocity.linear.x, self.current_velocity.linear.y, self.current_velocity.linear.z) # self.current_velocity.angular.z) 
-        # rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",self.x_pwm, self.y_pwm, self.z_pwm, self.yaw_pwm) 
 
     def manual_pwm_user_defined(self):
 
-        # rospy.loginfo_throttle(10,"PWM defined by user")
-        # publishing information for plotting
         self.publish_velocity_setpoints()
         self.publish_pwm_commands()
 
-        # rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,self.current_velocity.linear.x, self.current_velocity.linear.y, self.current_velocity.linear.z) # self.current_velocity.angular.z) 
-        # rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",self.x_pwm, self.y_pwm, self.z_pwm, self.yaw_pwm) 
-    
     def set_target_depth(self, depth):
         """ Sets the target depth while in depth-hold mode.
 
@@ -989,6 +948,41 @@ class MotionControl:
             #  (all not supported yet, ignored in GCS Mavlink)
         )
     
+    def erase_target_depth(self):
+        """ Sets the target depth while in depth-hold mode.
+
+        Uses https://mavlink.io/en/messages/common.html#SET_POSITION_TARGET_GLOBAL_INT
+
+        'depth' is technically an altitude, so set as negative meters below the surface
+            -> set_target_depth(-1.5) # sets target to 1.5m below the water surface.
+
+        """
+        self.master.mav.set_position_target_global_int_send(
+            int(1e3 * (time.time() - self.boot_time)), # ms since boot
+            self.master.target_system, self.master.target_component,
+            coordinate_frame=mavutil.mavlink.MAV_FRAME_GLOBAL_INT,
+            type_mask=(
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_X_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_Y_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_Z_IGNORE |
+                # DON'T mavutil.mavlink.POSITION_TARGET_TYPEMASK_Z_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_VX_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_VY_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_VZ_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE |
+                # DON'T mavutil.mavlink.POSITION_TARGET_TYPEMASK_FORCE_SET |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE
+            ), lat_int=0, lon_int=0, alt=0, # (x, y WGS84 frame pos - not used), z [m]
+            vx=0, vy=0, vz=0, # velocities in NED frame [m/s] (not used)
+            afx=0, afy=0, afz=0, yaw=0, yaw_rate=0
+            # accelerations in NED frame [N], yaw, yaw_rate
+            #  (all not supported yet, ignored in GCS Mavlink)
+        )
+    
+    
     def set_target_attitude(self, roll=0, pitch=0, yaw=0):
         """ Sets the target attitude while in depth-hold mode.
 
@@ -1004,7 +998,6 @@ class MotionControl:
             QuaternionBase([roll,pitch,yaw]),
             0, 0, 0, 0 # roll rate, pitch rate, yaw rate, thrust
         )
-
 
     def carrot_chasing(self):
         # let d  = crosstrack error 
@@ -1034,7 +1027,6 @@ def send_control_manual(master, x_pwm, y_pwm, z_pwm = 500, yaw_pwm = 0):
     z_pwm,
     yaw_pwm,
     0)
-
 
 #uses RC channel
 def send_control(x_pwm, y_pwm, z_pwm, yaw_pwm, master):
@@ -1073,9 +1065,6 @@ def set_rc_channel_pwm(channel_id, master, pwm=1500):
 
 # connect to bluerov
 def setup_signal(master):
-    # rospy.loginfo_once('Controller is in hardware mode')
-
-           
     # Wait a heartbeat before sending commands
     master.wait_heartbeat()
         
@@ -1088,22 +1077,21 @@ def setup_signal(master):
     rospy.loginfo("Waiting for the vehicle to arm")
     master.motors_armed_wait()
     rospy.loginfo('Armed!')
-    # master.set_mode(19) #manual Mode
     
-    # # set the desired operating mode
-    DEPTH_HOLD = 'ALT_HOLD'
-    # # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
-    # # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-    # master.set_mode(DEPTH_HOLD)
-    
-    # set the desired operating mode
-    # DEPTH_HOLD = 'ALT_HOLD'
-    # # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
-    # # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-    # master.set_mode(DEPTH_HOLD)
-    
+def initialize_operating_mode(master,mode):
+    if mode == "manual":
+        master.set_mode(19) 
+    elif mode =="depth hold":
+        master.set_mode('ALT_HOLD')
 
-    
+
+    # # set the desired operating mode
+    # DEPTH_HOLD = 'ALT_HOLD'
+    # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
+    # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
+    # master.set_mode(DEPTH_HOLD)
+
+
 def main(): 
     
     # Initialize the ROS node
@@ -1111,18 +1099,18 @@ def main():
     master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
 
     # initialize motion controller
-    controller = MotionControl(master = master,mode="hardware")
-
-    # master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
-  
+    controller = MotionControl(master = master,system="custom sim")
 
     # set which position control method to use
     controller.mode = 1
     # log info time step between debugging lines
     update_status_interval = 1
 
-    setup_signal(master)
-    # master.set_mode(19) #manual Mode
+
+    
+    # setup_signal(master)
+
+    # initialize_operating_mode(master=master, mode = "depth hold")
     
     
 
@@ -1130,88 +1118,48 @@ def main():
         if not controller.state == "Disabled":
 
             if controller.state == "Initialized":
-                controller.set_target_depth(-1*controller.target_depth)
-
+                try:
+                    controller.set_target_depth(-1*controller.target_depth)
+                except: 
+                    rospy.logwarn("Depth not set")
+                # # rospy.loginfo_throttle(3,f"current target depth is {controller.target_depth}")
+                # controller.set_target_depth(-1*controller.target_depth)
             
 
             elif controller.state == "manual pwm":
-                rospy.loginfo_throttle(10,"manual pwm mode is active")
+                # publish setpoints
                 controller.manual_pwm_user_defined()
-                if controller.z_pwm ==500:
+                send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
 
-                    send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
+                # if controller.z_pwm ==500:
 
-                    controller.set_target_depth(-1*controller.target_depth)
-                else: 
-                     send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
+                #     send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
 
-                
+                #     controller.set_target_depth(-1*controller.target_depth)
+                # else: 
+                #      send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
 
-
-                rospy.loginfo_throttle(update_status_interval,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
-                rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
-    
-
+            
             elif controller.state == "velocity":
-                # Notes: Yaw velocity is not being published to the setpoint plot
-                rospy.loginfo_throttle(10,"velocity controller is active")
-
+            
                 controller.velocity_controller()
-                # for sending the actual control via manual mode
-                # send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm)
                 if controller.vz_setpoint == 0:
-
-                    send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
-
-                    controller.set_target_depth(-1*controller.target_depth)
-
+                    
+                    send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = 500, yaw_pwm = controller.yaw_pwm)
+                    
+                    # controller.set_target_depth(-1*controller.target_depth)
 
                 else: 
                     send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
 
-                # send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
-                
-                # controller.set_target_depth(-1*controller.target_depth)
-
-                rospy.loginfo_throttle(update_status_interval,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
-                rospy.loginfo_throttle(update_status_interval,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
-                rospy.loginfo_throttle(update_status_interval,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
+                # rospy.loginfo_throttle(update_status_interval,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
+                # rospy.loginfo_throttle(update_status_interval,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
+                # rospy.loginfo_throttle(update_status_interval,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
 
             elif controller.state == "waypoint":
-                    rospy.loginfo_throttle(10,"wayppoint follower is active")
+                rospy.loginfo_throttle(10,"wayppoint follower is active")
 
-                    ###############################################################################################################
-                    # DETERMINE THE SETPOINT POSE NEED TO MAKE THIS ANOTHER NODE AND INTEGRATE WITH TRAJECTORY?NAV STACK 
-
-        
-                    # controller.get_current_waypoint()
-                    
-                    # Check if holding a poistion or heading to waypoint 
-                    # if controller.hold_pose:
-                    #     controller.current_waypoint.pose = controller.hold_pose_waypoint
-                    #     rospy.loginfo_throttle( update_status_interval,f"Holding postion at (x,y,z): {controller.hold_pose_waypoint.position.x:.2f}, {controller.hold_pose_waypoint.position.y:.2f},{controller.hold_pose_waypoint.position.z:.2f}")
-                    # else:
-                    #     controller.get_current_waypoint()
-
-                    #     # check if the waypoint is reached
-                    #     if controller.reached_waypoint():
-                    #         # if there are additional waypoints increase the waypoint index and get the new waypoint, if there are no new waypoints, hold position at the current waypoint
-                    #         if controller.waypoint_index < controller.num_waypoints-1:
-                    #             rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}: x = {controller.current_waypoint.pose.position.x:.2f}, y = {controller.current_waypoint.pose.position.y:.2f}, z = {controller.current_waypoint.pose.position.z:.2f}, yaw = {controller.waypoint_yaw:.2f}")
-                    #             controller.waypoint_index +=1
-
-                    #             # rospy.loginfo(f"Error Windup: ({controller.sum_error_x}, {controller.sum_error_y}, {controller.sum_error_z}, {controller.sum_error_yaw})")
-                    #             controller.reset_position_errors()
-                    #             rospy.loginfo(f"Reset position errors")
-
-
-                    #             controller.get_current_waypoint()
-                    #             rospy.loginfo(f"Heading to waypoint {controller.waypoint_index +1}: x = {controller.current_waypoint.pose.position.x}, y = {controller.current_waypoint.pose.position.y}, z = {controller.current_waypoint.pose.position.z} , yaw = {controller.waypoint_yaw:.2f}")
-                    #         else:
-                    #             rospy.loginfo_throttle(2,f"Reached the last waypoint, holding position at waypoint {controller.waypoint_index +1}:  x = {controller.current_waypoint.pose.position.x}, y = {controller.current_waypoint.pose.position.y}, z = {controller.current_waypoint.pose.position.z} , yaw = {controller.waypoint_yaw:.2f}")
-
-                    ################################################################################################################
-
+                if not controller.current_waypoint == None:
                     if controller.mode ==1:
                         controller.calculate_position_errors()
 
@@ -1224,8 +1172,8 @@ def main():
                         controller.calc_yaw_velocity_setpoint_final()
 
                         controller.velocity_controller()
-                        
-                        
+                    
+                    
                         # for sending the actual control via manual mode
                         # send_control_manual(master, controller.x_pwm,controller.y_pwm)
                         send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
@@ -1233,7 +1181,7 @@ def main():
                         # set depth
                         controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
 
-                    
+                
                     elif controller.mode == 2:
                         if controller.reached_position():
                             rospy.loginfo_throttle(update_status_interval,"reached position, adjusting yaw")
@@ -1297,21 +1245,21 @@ def main():
 
 
                     # publish the calculated setpoints
-                    controller.publish_velocity_setpoints()
-                    controller.publish_pwm_commands()
+                    # controller.publish_velocity_setpoints()
+                    # controller.publish_pwm_commands()
                 
-                    rospy.loginfo_throttle(2,"Current Pose: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f" ,controller.current_pose.pose.position.x,controller.current_pose.pose.position.y,controller.current_pose.pose.position.z, controller.current_yaw)
-                    rospy.loginfo_throttle(2,"Current waypoint: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.current_waypoint.pose.position.x,controller.current_waypoint.pose.position.y,controller.current_waypoint.pose.position.z, controller.waypoint_yaw)
+                    # rospy.loginfo_throttle(2,"Current Pose: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f" ,controller.current_pose.pose.position.x,controller.current_pose.pose.position.y,controller.current_pose.pose.position.z, controller.current_yaw)
+                    # rospy.loginfo_throttle(2,"Current waypoint: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.current_waypoint.pose.position.x,controller.current_waypoint.pose.position.y,controller.current_waypoint.pose.position.z, controller.waypoint_yaw)
                     
-                    rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
-                    rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
-                    rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
-
-
+                    # rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
+                    # rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
+                    # rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
             
+                else:
+                    rospy.logwarn_throttle(1, "no waypoint received by motion controller")
 
             elif controller.state == "Joystick":
-                    rospy.loginfo_throttle(10,"Joystick mode is active")
+                rospy.loginfo_throttle(10,"Joystick mode is active")
 
             # elif controller.state == "Disabled":
             #         rospy.loginfo_throttle(10,"Controller is disabled, holding depth")
@@ -1320,193 +1268,29 @@ def main():
             else: 
                 rospy.logerr("Motion controller is in an unexpected state")
         else: 
-            rospy.loginfo_throttle(10,"motion controller is disabled")
+            # rospy.loginfo_throttle(5,f"current target depth is {controller.target_depth}")
+            rospy.loginfo_throttle(5,"motion controller is disabled")
+            # try: 
+            #     controller.erase_target_depth()
+            #     # controller.set_target_depth(-1*controller.target_depth)
+            # except: 
+            #     # rospy.loginfo_once("no target depth set")
+            #     rospy.loginfo_once("cant erase target depth")
+                
+            # if controller.current_pose.pose.position.z < 5: 
+                # rospy.loginfo_once("trying to move down")
+                
+                # send_control_manual(master, x_pwm = 0, y_pwm = 0, z_pwm= 200, yaw_pwm = 0)
+
+            #     controller.set_target_depth(-1*controller.target_depth)
+                
+
+            # initialize_operating_mode(master=master, mode = "depth hold")
+    
 
 
         controller.rate.sleep()    
-    
-        '''
-            if controller.invoked:
-                rospy.loginfo("controller is invoked")
-
-            
-                if controller.velocity_setpoint_testing:
-                    rospy.loginfo_throttle(10,"velocity controller is active")
-        
-                    controller.velocity_controller()
-                    # for sending the actual control via manual mode
-                    # send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.z_pwm, controller.yaw_pwm)
-                    send_control_manual(master, controller.x_pwm,controller.y_pwm, controller.yaw_pwm)
-                    
-                    controller.set_target_depth(-1*controller.target_depth)
-
-                    rospy.loginfo_throttle(update_status_interval,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
-                    rospy.loginfo_throttle(update_status_interval,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
-                    rospy.loginfo_throttle(update_status_interval,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
-
-
-                elif controller.pwm_testing:
-                    rospy.loginfo_throttle(10,"pwm controller is active")
-                    controller.manual_pwm_user_defined()
-                    send_control_manual(master,controller.x_pwm,controller.y_pwm, controller.yaw_pwm)
-                    controller.set_target_depth(-1*controller.target_depth)
-        
-                # elif controller.position_testing:
-                else: 
-                    rospy.loginfo_throttle(10,"position controller is active")
-                
-                    ###############################################################################################################
-                    # DETERMINE THE SETPOINT POSE
-
-        
-                    controller.get_current_waypoint()
-                    
-                    # Check if holding a poistion or heading to waypoint 
-                    if controller.hold_pose:
-                        controller.current_waypoint.pose = controller.hold_pose_waypoint
-                        rospy.loginfo_throttle( update_status_interval,f"Holding postion at (x,y,z): {controller.hold_pose_waypoint.position.x:.2f}, {controller.hold_pose_waypoint.position.y:.2f},{controller.hold_pose_waypoint.position.z:.2f}")
-                    else:
-                        controller.get_current_waypoint()
-
-                        # check if the waypoint is reached
-                        if controller.reached_waypoint():
-                            # if there are additional waypoints increase the waypoint index and get the new waypoint, if there are no new waypoints, hold position at the current waypoint
-                            if controller.waypoint_index < controller.num_waypoints-1:
-                                rospy.loginfo(f"Reached waypoint {controller.waypoint_index +1}: x = {controller.current_waypoint.pose.position.x:.2f}, y = {controller.current_waypoint.pose.position.y:.2f}, z = {controller.current_waypoint.pose.position.z:.2f}, yaw = {controller.waypoint_yaw:.2f}")
-                                controller.waypoint_index +=1
-
-                                # rospy.loginfo(f"Error Windup: ({controller.sum_error_x}, {controller.sum_error_y}, {controller.sum_error_z}, {controller.sum_error_yaw})")
-                                controller.reset_position_errors()
-                                rospy.loginfo(f"Reset position errors")
-
-
-                                controller.get_current_waypoint()
-                                rospy.loginfo(f"Heading to waypoint {controller.waypoint_index +1}: x = {controller.current_waypoint.pose.position.x}, y = {controller.current_waypoint.pose.position.y}, z = {controller.current_waypoint.pose.position.z} , yaw = {controller.waypoint_yaw:.2f}")
-                            else:
-                                rospy.loginfo_throttle(2,f"Reached the last waypoint, holding position at waypoint {controller.waypoint_index +1}:  x = {controller.current_waypoint.pose.position.x}, y = {controller.current_waypoint.pose.position.y}, z = {controller.current_waypoint.pose.position.z} , yaw = {controller.waypoint_yaw:.2f}")
-
-                    ###############################################################################################################
-                    
-        
-                    
-                    #     ###############################################################################################################
-                    #     # CONTROL LOOP
-                    
-        
-
-                    if controller.mode ==1:
-                        controller.calculate_position_errors()
-                        
-
-                        if controller.reached_position():
-                            rospy.loginfo_throttle(update_status_interval,"reached position, adjusting yaw")
-                            controller.set_target_attitude(yaw=controller.target_yaw)
-                            controller.calc_x_velocity_setpoint()
-                            controller.calc_y_velocity_setpoint()
-                        elif controller.reached_x_y():
-                            rospy.loginfo_throttle(update_status_interval,"reached x,y, adjusting yaw")
-                            controller.set_target_attitude(yaw=controller.target_yaw)
-                            # controller.calc_x_velocity_setpoint()
-                            # controller.calc_y_velocity_setpoint()
-                            controller.vx_setpoint = 0
-                            controller.vy_setpoint = 0
-
-                        else:
-                            # rospy.loginfo("adjusting heading, x, and y")
-                            # controller.position_controller_RTR()
-                            controller.calc_x_velocity_setpoint()
-                            controller.calc_y_velocity_setpoint()
-                            bf_y_error = -np.sin(controller.current_yaw) * controller.error_x  + np.cos(controller.current_yaw) * controller.error_y
-                            
-                            # if bf_y_error >0.2:
-                                # controller.calc_y_velocity_setpoint()
-
-                            controller.heading = np.arctan2(np.array(controller.error_y),np.array(controller.error_x))
-                            controller.heading_error = controller.heading - controller.current_yaw
-
-                            # normalize heading 
-                            if controller.heading_error > np.pi:
-                                controller.heading -= 2 * np.pi
-                            elif controller.heading_error < -np.pi:
-                                controller.heading += 2 * np.pi
-                            controller.set_target_attitude(yaw=controller.heading)
-                            
-                            if controller.heading_error > np.pi/20:
-                                rospy.loginfo("large heading error stopping motion and adjusting heading")
-                                
-                                controller.vx_setpoint = 0
-                                controller.vy_setpoint = 0
-                                # if bf_y_error > 0.2:
-                                # controller.calc_y_velocity_setpoint()
-                            # else: 
-                                # rospy.loginfo("adjusting heading, x, and y")
-                        
-                        controller.velocity_controller()
-                        
-                        
-                        # for sending the actual control via manual mode
-                        send_control_manual(master, controller.x_pwm,controller.y_pwm)
-
-                        # controller.set_target_attitude(yaw=controller.target_yaw)
-                        
-                        # set depth
-                        controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
-
-                    
-                    if controller.mode == 2:
-                        controller.calculate_position_errors()
-                        
-
-                        if controller.error_z> 0.2:
-                            controller.vx_setpoint = 0
-                            controller.vy_setpoint = 0
-                            controller.velocity_controller()
-                            send_control_manual(master, controller.x_pwm,controller.y_pwm)
-                            controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
-                            controller.set_target_attitude(yaw=controller.target_yaw)
-                        else:                    
-
-                            controller.vx_setpoint = 0.5
-                            controller.vy_setpoint = 0
-                        
-                            controller.carrot_chasing()
-                            controller.velocity_controller()
-                            
-                                
-                            send_control_manual(master, controller.x_pwm,controller.y_pwm)
-                            controller.set_target_attitude(yaw=controller.heading)
-
-                            controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
-                            
-
-                    # publish the calculated setpoints
-                    controller.publish_velocity_setpoints()
-                    controller.publish_pwm_commands()
-                
-                    rospy.loginfo_throttle(2,"Current Pose: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f" ,controller.current_pose.pose.position.x,controller.current_pose.pose.position.y,controller.current_pose.pose.position.z, controller.current_yaw)
-                    rospy.loginfo_throttle(2,"Current waypoint: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.current_waypoint.pose.position.x,controller.current_waypoint.pose.position.y,controller.current_waypoint.pose.position.z, controller.waypoint_yaw)
-                    
-                    rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
-                    rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
-                    rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
-
-                # else:
-                #     controller.set_target_depth(-1*1)
-                                    
-
-            elif not controller.invoked:
-                rospy.loginfo_throttle(10,"controller is  disabled")
-                depth_hold= False
-        
-                controller.set_target_depth(-1*1)
-            
-
-        
-            else:
-                rospy.logwarn_throttle(10,"controller is in an unexpectated state")
-
-            '''
-            
+          
 
     
 if __name__ == "__main__":
