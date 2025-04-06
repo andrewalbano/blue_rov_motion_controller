@@ -324,7 +324,11 @@ class MotionControl:
         self.sub7 = rospy.Subscriber('controller_gains', Float32MultiArray, self.gui_info_callback)
         self.sub8 = rospy.Subscriber('/dvl/twist', TwistStamped, self.velocity_callback)
         self.sub9 = rospy.Subscriber('motion_controller_state', String, self.controller_state_callback)
-        self.waypoint_sub = rospy.Subscriber('current_waypoint', PoseStamped, self.current_waypoint_callback)
+
+        # switch based on whichever is being used for the waypoint
+
+        # self.waypoint_sub = rospy.Subscriber('current_goal_waypoint', PoseStamped, self.current_waypoint_callback)
+        self.waypoint_sub = rospy.Subscriber('lookahead_waypoint', PoseStamped, self.current_waypoint_callback)
     
         # creating publishers, for the RViz only simulation
         # self.pub1 = rospy.Publisher('velocity_command', TwistStamped, queue_size=10)
@@ -396,7 +400,7 @@ class MotionControl:
         self.current_waypoint = PoseStamped()   # stores the current waypoint
         self.current_waypoint = msg
         _,_,self.waypoint_yaw = euler_from_quaternion([self.current_waypoint.pose.orientation.x,self.current_waypoint.pose.orientation.y, self.current_waypoint.pose.orientation.z, self.current_waypoint.pose.orientation.w])
-        rospy.loginfo("motion controller received new target waypoint")
+        # rospy.loginfo("motion controller received new target waypoint")
 
     def gui_info_callback(self,msg: Float32MultiArray):
         ''' changes various parameters '''
@@ -1157,7 +1161,7 @@ def main():
                 # rospy.loginfo_throttle(update_status_interval,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
 
             elif controller.state == "waypoint":
-                rospy.loginfo_throttle(10,"wayppoint follower is active")
+                rospy.loginfo_throttle(10,"waypoint follower is active")
 
                 if not controller.current_waypoint == None:
                     if controller.mode ==1:
