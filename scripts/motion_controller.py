@@ -25,11 +25,11 @@ class MotionControl:
         if system == "hardware": 
             # POSITION CONTROLLER
             # x-y gains
-            self.Kp_x = 0
+            self.Kp_x = 0.5 
             self.Kd_x = 0
             self.Ki_x = 0
 
-            self.Kp_y = 0
+            self.Kp_y = 0.5
             self.Kd_y = 0
             self.Ki_y = 0
 
@@ -90,6 +90,7 @@ class MotionControl:
             self.Ki_y = 0
 
             # z gains
+            self.Kp_z = 0
             self.Kd_z = 0 
             self.Ki_z = 0 
 
@@ -136,20 +137,21 @@ class MotionControl:
         
             # POSITION CONTROLLER
             # x-y gains
-            self.Kp_x = 0.25
+            self.Kp_x = 0.3
             self.Kd_x = 0
             self.Ki_x = 0
 
-            self.Kp_y = 0.25
+            self.Kp_y = 0.3
             self.Kd_y = 0
             self.Ki_y = 0
 
             # z gains
+            self.Kp_z = 0.3
             self.Kd_z = 0 
             self.Ki_z = 0 
 
             # yaw gains 
-            self.Kp_yaw = 0.5 # 0.2
+            self.Kp_yaw = 0.3 # 0.2
             self.Kd_yaw = 0 
             self.Ki_yaw = 0
 
@@ -303,6 +305,9 @@ class MotionControl:
         self.last_n_errors_vyaw = [] 
 
     
+        
+        self.pub16= rospy.Publisher('v_magnitude_setpoint', Float32, queue_size=1)
+        self.pub17= rospy.Publisher('v_magnitude', Float32, queue_size=1)
 
         self.pub2 = rospy.Publisher('velocity_setpoint', Twist, queue_size=1)
         self.pub3 = rospy.Publisher('pwm_setpoint', Twist, queue_size=1)
@@ -319,6 +324,7 @@ class MotionControl:
         self.pub13= rospy.Publisher('vy', Float32, queue_size=1)
         self.pub14= rospy.Publisher('vz', Float32, queue_size=1)
         self.pub15= rospy.Publisher('vyaw', Float32, queue_size=1)
+        
         # creating subscribers
         self.sub2 = rospy.Subscriber('/state', PoseWithCovarianceStamped, self.position_callback)
         self.sub7 = rospy.Subscriber('controller_gains', Float32MultiArray, self.gui_info_callback)
@@ -521,6 +527,9 @@ class MotionControl:
         self.pub13.publish(self.current_velocity.linear.y)
         self.pub14.publish(self.current_velocity.linear.z)
         self.pub15.publish(vyaw)
+
+        v_xy_magnitude = np.linalg.norm([self.current_velocity.linear.x, self.current_velocity.linear.y])
+        self.pub17.publish(v_xy_magnitude)
     
     def get_lookahead_waypoint(self):
     
@@ -540,11 +549,15 @@ class MotionControl:
 
         vyaw = self.vyaw_setpoint *180/np.pi
 
+        v_xy_magnitude_setpoint = np.linalg.norm([self.vx_setpoint,self.vy_setpoint])
+
         self.pub2.publish(self.velocity_setpoint)
         self.pub4.publish(self.vx_setpoint)
         self.pub5.publish(self.vy_setpoint)
         self.pub6.publish(self.vz_setpoint)
         self.pub7.publish(vyaw)
+
+        self.pub16.publish(v_xy_magnitude_setpoint)
        
 
     def publish_pwm_commands(self):
@@ -1103,7 +1116,8 @@ def main():
     master = mavutil.mavlink_connection('udpin:0.0.0.0:14550')
 
     # initialize motion controller
-    controller = MotionControl(master = master,system="custom sim")
+    # controller = MotionControl(master = master,system="custom sim")
+    controller = MotionControl(master = master,system="hardware")
 
     # set which position control method to use
     controller.mode = 1
@@ -1112,9 +1126,9 @@ def main():
 
 
     
-    # setup_signal(master)
+    setup_signal(master)
 
-    # initialize_operating_mode(master=master, mode = "depth hold")
+    initialize_operating_mode(master=master, mode = "depth hold")
     
     
 
