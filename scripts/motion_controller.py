@@ -2,7 +2,7 @@
 import rospy
 import numpy as np
 # import matplotlib.pyplot as plt
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose, Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped,PoseArray, TwistStamped, Pose, Twist, TwistWithCovarianceStamped
 from tf.transformations import euler_from_quaternion, euler_matrix
 from mavros_msgs.msg import OverrideRCIn
 from pymavlink import mavutil
@@ -328,7 +328,8 @@ class MotionControl:
         # creating subscribers
         self.sub2 = rospy.Subscriber('/state', PoseWithCovarianceStamped, self.position_callback)
         self.sub7 = rospy.Subscriber('controller_gains', Float32MultiArray, self.gui_info_callback)
-        self.sub8 = rospy.Subscriber('/dvl/twist', TwistStamped, self.velocity_callback)
+        # self.sub8 = rospy.Subscriber('/dvl/twist', TwistStamped, self.velocity_callback)
+        self.sub8 = rospy.Subscriber('/twist', TwistWithCovarianceStamped, self.velocity_callback)
         self.sub9 = rospy.Subscriber('motion_controller_state', String, self.controller_state_callback)
 
         # switch based on whichever is being used for the waypoint
@@ -429,7 +430,6 @@ class MotionControl:
             self.Kp_yaw = msg.data[10]
             self.Kd_yaw = msg.data[11]
             self.Ki_yaw = msg.data[12]
-
             self.reset_position_errors()
 
             rospy.loginfo(f"Position controller gains (kp,kd,ki):\nx: ({self.Kp_x}, {self.Kd_x}, {self.Ki_x})\ny: ({self.Kp_y}, {self.Kd_y}, {self.Ki_y})\nz: ({self.Kp_z}, {self.Kd_z}, {self.Ki_z})\nyaw: ({self.Kp_yaw}, {self.Kd_yaw}, {self.Ki_yaw})")
@@ -519,8 +519,16 @@ class MotionControl:
         q = msg.pose.pose.orientation
         self.current_roll,self.current_pitch,self.current_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-    def velocity_callback(self, msg:TwistStamped):
-        self.current_velocity = msg.twist
+    def velocity_callback(self, msg:TwistWithCovarianceStamped):
+        # self.current_velocity = msg.twist
+
+        # vyaw = self.current_velocity.angular.z*180/np.pi
+        # self.pub12.publish(self.current_velocity.linear.x)
+        # self.pub13.publish(self.current_velocity.linear.y)
+        # self.pub14.publish(self.current_velocity.linear.z)
+        # self.pub15.publish(vyaw)
+
+        self.current_velocity = msg.twist.twist
 
         vyaw = self.current_velocity.angular.z*180/np.pi
         self.pub12.publish(self.current_velocity.linear.x)
@@ -1128,7 +1136,7 @@ def main():
     
     setup_signal(master)
 
-    initialize_operating_mode(master=master, mode = "depth hold")
+    # initialize_operating_mode(master=master, mode = "depth hold")
     
     
 
@@ -1137,7 +1145,8 @@ def main():
 
             if controller.state == "Initialized":
                 try:
-                    controller.set_target_depth(-1*controller.target_depth)
+                    # controller.set_target_depth(-1*controller.target_depth)
+                    rospy.loginfo("placeholder")
                 except: 
                     rospy.logwarn("Depth not set")
                 # # rospy.loginfo_throttle(3,f"current target depth is {controller.target_depth}")
@@ -1194,71 +1203,71 @@ def main():
                     
                         # for sending the actual control via manual mode
                         # send_control_manual(master, controller.x_pwm,controller.y_pwm)
-                        send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm, yaw_pwm = controller.yaw_pwm)
+                        send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm,z_pwm=500, yaw_pwm = controller.yaw_pwm)
                         
                         # set depth
-                        controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
+                        # controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
 
                 
-                    elif controller.mode == 2:
-                        if controller.reached_position():
-                            rospy.loginfo_throttle(update_status_interval,"reached position, adjusting yaw")
-                            # test to see if target attitude works if not switch to yaw controller
-                            controller.set_target_attitude(yaw=controller.target_yaw)
-                            # controller.calc_yaw_velocity_setpoint_final()
+                    # elif controller.mode == 2:
+                    #     if controller.reached_position():
+                    #         rospy.loginfo_throttle(update_status_interval,"reached position, adjusting yaw")
+                    #         # test to see if target attitude works if not switch to yaw controller
+                    #         controller.set_target_attitude(yaw=controller.target_yaw)
+                    #         # controller.calc_yaw_velocity_setpoint_final()
                             
-                            controller.calc_x_velocity_setpoint()
-                            controller.calc_y_velocity_setpoint()
+                    #         controller.calc_x_velocity_setpoint()
+                    #         controller.calc_y_velocity_setpoint()
 
 
                         
-                        elif controller.reached_x_y():
-                            rospy.loginfo_throttle(update_status_interval,"reached x,y")
-                            controller.set_target_attitude(yaw=controller.target_yaw)
-                            controller.calc_x_velocity_setpoint()
-                            controller.calc_y_velocity_setpoint()
-                            # controller.vx_setpoint = 0
-                            # controller.vy_setpoint = 0
+                    #     elif controller.reached_x_y():
+                    #         rospy.loginfo_throttle(update_status_interval,"reached x,y")
+                    #         controller.set_target_attitude(yaw=controller.target_yaw)
+                    #         controller.calc_x_velocity_setpoint()
+                    #         controller.calc_y_velocity_setpoint()
+                    #         # controller.vx_setpoint = 0
+                    #         # controller.vy_setpoint = 0
 
-                        else:
-                            # rospy.loginfo("adjusting heading, x, and y")
-                            controller.calc_x_velocity_setpoint()
-                            controller.calc_y_velocity_setpoint()
-                            bf_y_error = -np.sin(controller.current_yaw) * controller.error_x  + np.cos(controller.current_yaw) * controller.error_y
+                    #     else:
+                    #         # rospy.loginfo("adjusting heading, x, and y")
+                    #         controller.calc_x_velocity_setpoint()
+                    #         controller.calc_y_velocity_setpoint()
+                    #         bf_y_error = -np.sin(controller.current_yaw) * controller.error_x  + np.cos(controller.current_yaw) * controller.error_y
                             
-                            # if bf_y_error >0.2:
-                                # controller.calc_y_velocity_setpoint()
+                    #         # if bf_y_error >0.2:
+                    #             # controller.calc_y_velocity_setpoint()
 
-                            controller.heading = np.arctan2(np.array(controller.error_y),np.array(controller.error_x))
-                            controller.heading_error = controller.heading - controller.current_yaw
+                    #         controller.heading = np.arctan2(np.array(controller.error_y),np.array(controller.error_x))
+                    #         controller.heading_error = controller.heading - controller.current_yaw
 
-                            # # normalize heading 
-                            # if controller.heading_error > np.pi:
-                            #     controller.heading -= 2 * np.pi
-                            # elif controller.heading_error < -np.pi:
-                            #     controller.heading += 2 * np.pi
-                            controller.set_target_attitude(yaw=controller.heading)
+                    #         # # normalize heading 
+                    #         # if controller.heading_error > np.pi:
+                    #         #     controller.heading -= 2 * np.pi
+                    #         # elif controller.heading_error < -np.pi:
+                    #         #     controller.heading += 2 * np.pi
+                    #         controller.set_target_attitude(yaw=controller.heading)
                             
-                            if controller.heading_error > np.pi/20:
-                                rospy.loginfo("large heading error stopping motion and adjusting heading")
+                    #         if controller.heading_error > np.pi/20:
+                    #             rospy.loginfo("large heading error stopping motion and adjusting heading")
                                 
-                                controller.vx_setpoint = 0
-                                controller.vy_setpoint = 0
-                                # if bf_y_error > 0.2:
-                                # controller.calc_y_velocity_setpoint()
-                            # else: 
-                                # rospy.loginfo("adjusting heading, x, and y")
+                    #             controller.vx_setpoint = 0
+                    #             controller.vy_setpoint = 0
+                    #             # if bf_y_error > 0.2:
+                    #             # controller.calc_y_velocity_setpoint()
+                    #         # else: 
+                    #             # rospy.loginfo("adjusting heading, x, and y")
                         
-                            controller.velocity_controller()
+                    #         controller.velocity_controller()
                             
                             
-                            # for sending the actual control via manual mode
-                            send_control_manual(master, controller.x_pwm,controller.y_pwm)
+                    #         # for sending the actual control via manual mode
+                    #         send_control_manual(master, controller.x_pwm,controller.y_pwm)
 
-                            # controller.set_target_attitude(yaw=controller.target_yaw)
+                    #         # controller.set_target_attitude(yaw=controller.target_yaw)
                             
-                            # set depth
-                            controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
+                    #         # set depth
+                    #         controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
 
 
 
