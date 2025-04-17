@@ -21,7 +21,6 @@ class MotionControl:
         self.delta = 5
         self.target_depth = None
 
-        self.num_errors = 15 # stores the last n errors for integral term
         if system == "hardware": 
             # POSITION CONTROLLER
             # x-y gains
@@ -727,8 +726,7 @@ class MotionControl:
         self.prev_error_y = self.error_y
         self.prev_error_z = self.error_z
         self.prev_error_yaw = self.error_yaw #to final orientation
-
-        
+      
     def calculate_velocity_errors(self):
         # velocity errors  Assumed to be velocity in the robot frame
         self.error_vx = self.vx_setpoint - self.current_velocity.linear.x 
@@ -948,6 +946,15 @@ class MotionControl:
         self.calc_z_pwm()
         self.calc_yaw_pwm()
 
+
+    # controllers
+    
+    def position_controller(self):
+        self.calculate_position_errors()
+        self.calc_x_velocity_setpoint()
+        self.calc_y_velocity_setpoint()
+        self.calc_yaw_velocity_setpoint_final()
+
     def velocity_controller(self):
         # outputs a joystick signal to send to the robot tries to reach setpoint velocity
 
@@ -959,6 +966,7 @@ class MotionControl:
         # for logging to graphs
         self.publish_velocity_setpoints()
         self.publish_pwm_commands()
+
 
     def manual_pwm_user_defined(self):
 
@@ -1032,7 +1040,6 @@ class MotionControl:
             #  (all not supported yet, ignored in GCS Mavlink)
         )
     
-    
     def set_target_attitude(self, roll=0, pitch=0, yaw=0):
         """ Sets the target attitude while in depth-hold mode.
 
@@ -1049,32 +1056,10 @@ class MotionControl:
             0, 0, 0, 0 # roll rate, pitch rate, yaw rate, thrust
         )
 
-    def carrot_chasing(self):
-        # let d  = crosstrack error 
-        self.get_current_waypoint()
-        self.get_lookahead_waypoint()
-        r1 = self.current_waypoint.pose.position.x - self.current_pose.pose.position.x
-        r2 = self.current_waypoint.pose.position.y - self.current_pose.pose.position.y
-        ru = np.linalg.norm(np.array(r1,r2))
-        theta = np.arctan2(self.lookahead_waypoint.pose.position.y- self.current_waypoint.pose.position.y,self.lookahead_waypoint.pose.position.x- self.current_waypoint.pose.position.x) 
-        theta_u = np.arctan2(self.current_pose.pose.position.y-self.current_waypoint.pose.position.y, self.current_pose.pose.position.x-self.current_waypoint.pose.position.x)
-        beta = theta-theta_u
-        R = np.sqrt((ru**2)-(ru*np.sin(beta)**2))
-        x_t_prime = (R + self.delta) * np.cos(theta)
-        y_t_prime = (R + self.delta) * np.sin(theta)
-        carrot_point = (x_t_prime, y_t_prime)
-        self.heading = np.arctan2(y_t_prime-self.current_pose.pose.position.y,x_t_prime-self.current_pose.pose.position.x)
-        u = self.Kp_yaw()
-
         
 # Function to send control inputs to the robot (e.g., through MAVLink or a ROS topic)
 # uses manual mode
 def send_control_manual(master, x_pwm, y_pwm, z_pwm = 500, yaw_pwm = 0):
-    # if x_pwm == 999:
-    #     x_pwm = 32767
-    
-    # if z_pwm ==500:
-    #     z_pwm = 32767
     master.mav.manual_control_send(
     master.target_system,
     x_pwm,
@@ -1085,13 +1070,7 @@ def send_control_manual(master, x_pwm, y_pwm, z_pwm = 500, yaw_pwm = 0):
 
 #uses RC channel
 def send_control(x_pwm, y_pwm, z_pwm, yaw_pwm, master):
-    # master.mav.manual_control_send(
-    # master.target_system,
-    # x_pwm,
-    # y_pwm,
-    # z_pwm,
-    # yaw_pwm,
-    # 0)
+
 
     set_rc_channel_pwm(3, master, pwm= z_pwm) #throttle or depth
     set_rc_channel_pwm(4, master, pwm=yaw_pwm) # yaw
@@ -1139,24 +1118,19 @@ def initialize_operating_mode(master,mode):
     elif mode =="depth hold":
         master.set_mode('ALT_HOLD')
 
-
-    # # set the desired operating mode
-    # DEPTH_HOLD = 'ALT_HOLD'
-    # DEPTH_HOLD_MODE = master.mode_mapping()[DEPTH_HOLD]
-    # while not master.wait_heartbeat().custom_mode == DEPTH_HOLD_MODE:
-    # master.set_mode(DEPTH_HOLD)
-
-
 def main(): 
     
     # Initialize the ROS node
     rospy.init_node('waypoint_follower')
     try:
-    
+        # system modes for different situations, hardware, sitl, custom sim
         system = "sitl"    
 
-        # custom
+        # choose buil in, or custom
         attitude_control = "built in"
+
+        # log info time step between debugging lines
+        update_status_interval = 1
 
         if system == "hardware":
             ignore_depth_control = True
@@ -1173,25 +1147,9 @@ def main():
             ignore_depth_control = True
             master = mavutil.mavlink_connection('udpin:0.0.0.0:14548') 
 
-        # master = mavutil.mavlink_connection('udpin:0.0.0.0:14554')
-        # master = mavutil.mavlink_connection('udpin:0.0.0.0:14551')
-        # master = mavutil.mavlink_connection('udpin:0.0.0.0:14445')
-
-        # this is the GCS url
-        # master = mavutil.mavlink_connection('udpin:0.0.0.0:14548')
-        # master = mavutil.mavlink_connection('udpin:0.0.0.0:14551')
-
-        # system = "sitl"
-
-
         # initialize motion controller
-        # controller = MotionControl(master = master,system="custom sim")
         controller = MotionControl(master = master,system=system)
 
-        # set which position control method to use
-        controller.mode = 1
-        # log info time step between debugging lines
-        update_status_interval = 1
 
         while not rospy.is_shutdown():
             if not controller.state == "Disabled":
@@ -1201,12 +1159,11 @@ def main():
                         if ignore_depth_control:
                             rospy.loginfo_throttle(update_status_interval ,"want to specify a depth here")
                         else:
+                            rospy.loginfo_throttle(update_status_interval, f"target_depth is {-1*controller.target_depth}")
                             controller.set_target_depth(-1*controller.target_depth)
                     except: 
                         rospy.logwarn("Depth not set")
-                    # # rospy.loginfo_throttle(3,f"current target depth is {controller.target_depth}")
-                    # controller.set_target_depth(-1*controller.target_depth)
-                
+                                
 
                 elif controller.state == "manual pwm":
                     # publish setpoints
@@ -1214,14 +1171,12 @@ def main():
                     send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
 
                 elif controller.state == "velocity":
-                
+                    # compute velocity errors and new pwm signals
                     controller.velocity_controller()
-                    if controller.vz_setpoint == 0:
-                        
-                        send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = 500, yaw_pwm = controller.yaw_pwm)
-                        
-                        # controller.set_target_depth(-1*controller.target_depth)
 
+                    if controller.vz_setpoint == 0:
+                        # setting it equal to 500 allows for depth control mode to hold the current depth 
+                        send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = 500, yaw_pwm = controller.yaw_pwm)
                     else: 
                         send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
 
@@ -1233,23 +1188,24 @@ def main():
                     rospy.loginfo_throttle(10,"waypoint follower is active")
 
                     if not controller.current_waypoint == None:
-                    
-                        controller.calculate_position_errors()
-                      
-                        controller.calc_x_velocity_setpoint()
-                        controller.calc_y_velocity_setpoint()
-                        controller.calc_yaw_velocity_setpoint_final()
+                        # calculates velocity setpoints
+                        controller.position_controller()
 
+                        # controller.calculate_position_errors()
+                        # controller.calc_x_velocity_setpoint()
+                        # controller.calc_y_velocity_setpoint()
+                        # controller.calc_yaw_velocity_setpoint_final()
+
+                        # calculates pwm output
                         controller.velocity_controller()
 
-
+                        # sending the pilot signal
                         if attitude_control == "built in":
-                        # test to see if target attitude works if not switch to yaw controller
+                            # need to test to see if target attitude works if not switch to yaw controller
                             controller.set_target_attitude(yaw = controller.target_yaw)
                             send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm,z_pwm=500, yaw_pwm = 0)
                             # controller.calc_yaw_velocity_setpoint_final()
                         elif attitude_control == "custom":
-                    
                             # for sending the actual control via manual mode
                             # send_control_manual(master, controller.x_pwm,controller.y_pwm)
                             send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm,z_pwm=500, yaw_pwm = controller.yaw_pwm)
@@ -1262,7 +1218,7 @@ def main():
                             # send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm,z_pwm=controller.z_pwm, yaw_pwm = controller.yaw_pwm)
                         
 
-                        rospy.loginfo_throttle(5,"got to the end of motion controller")
+                        # rospy.loginfo_throttle(5,"got to the end of motion controller")
 
 
                         # publish the calculated setpoints
