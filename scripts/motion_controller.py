@@ -72,8 +72,8 @@ class MotionControl:
             # saturation 
             self.pwm_anti_windup_clip = [-10,10]  # 500# prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
             self.pwm_anti_windup_clip_angular = [-10,10]
-            self.linear_pwm_clip = [1000, 2000] #min and max pwm setpoints
-            self.angular_pwm_clip = [1000, 2000] # min and max angular velocity setpoints
+            self.linear_pwm_clip = [1200, 1800] #min and max pwm setpoints
+            self.angular_pwm_clip = [1200, 1800] # min and max angular velocity setpoints
             self.pwm_clip = [-1000,1000]
         
         elif system  == "sitl": 
@@ -157,8 +157,8 @@ class MotionControl:
             # self.pwm_anti_windup_clip = [0,10]
             self.pwm_anti_windup_clip_angular = [-20,20]
               # 500# prevents the integral error from becoming too large, might need to split this up into multiple degree of freedoms
-            self.linear_pwm_clip = [1000, 2000] #min and max pwm setpoints
-            self.angular_pwm_clip = [1000, 2000] # min and max angular velocity setpoints
+            self.linear_pwm_clip = [1200, 1800] #min and max pwm setpoints
+            self.angular_pwm_clip = [1200, 1800] # min and max angular velocity setpoints
 
             self.pwm_clip = [-1000,1000]
           
@@ -718,10 +718,10 @@ class MotionControl:
         # calulating integral of the error in the NED FRAME using the trapezoidal method for the area
 
         # calulating integral of the error in the NED FRAME using the trapezoidal method for the area
-        self.sum_error_x +=self.sum_error_vx
-        self.sum_error_y += self.sum_error_vy
-        self.sum_error_z += self.sum_error_vz
-        self.sum_error_yaw += self.sum_error_vyaw# to final orientation
+        self.sum_error_x +=self.sum_error_x/self.frequency
+        self.sum_error_y += self.sum_error_y/self.frequency
+        self.sum_error_z += self.sum_error_z/self.frequency
+        self.sum_error_yaw += self.sum_error_yaw/self.frequency# to final orientation
 
         # self.sum_error_x += self.calculate_integral(a = self.prev_error_x, b = self.error_x, h = self.dt)
         # self.sum_error_y += self.calculate_integral(a = self.prev_error_y, b = self.error_y, h = self.dt)
@@ -1112,9 +1112,7 @@ def send_control_manual(master, x_pwm, y_pwm, z_pwm = 500, yaw_pwm = 0):
 
 #uses RC channel
 def send_control(x_pwm, y_pwm, z_pwm, yaw_pwm, master):
-
-
-    set_rc_channel_pwm(3, master, pwm= z_pwm) #throttle or depth
+    # set_rc_channel_pwm(3, master, pwm= z_pwm) #throttle or depth
     set_rc_channel_pwm(4, master, pwm=yaw_pwm) # yaw
     set_rc_channel_pwm(5, master, pwm=x_pwm)  # forward
     set_rc_channel_pwm(6, master, pwm=y_pwm) # lateral control
@@ -1167,11 +1165,11 @@ def main():
     rospy.loginfo("starting motion control node")
     try:
         # system modes for different situations, hardware, sitl, custom sim
-        system = "sitl"    
+        system = "custom sim"    
 
         # choose built in, or custom
-        attitude_control = "built in"
-        # attitude_control = "custom"
+        # attitude_control = "built in"
+        attitude_control = "custom"
 
         # log info time step between debugging lines
         update_status_interval = 1
@@ -1210,9 +1208,11 @@ def main():
                         #     # controller.target_depth_sent = True
                         #     # send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
                         #     controller.set_target_depth(-1*controller.target_depth)
+                            send_control_manual(master, x_pwm = 0, y_pwm = 0,z_pwm = 500, yaw_pwm = 0)
                         else:
                             # rospy.loginfo_throttle(update_status_interval, f"target_depth is {-1*controller.target_depth}")
                             # send_control_manual(master, x_pwm = 0, y_pwm = 0,z_pwm = 500,yaw_pwm = 0)
+                            send_control_manual(master, x_pwm = 0, y_pwm = 0,z_pwm = 500, yaw_pwm = 0)
                             controller.set_target_depth(-1*controller.target_depth)
                     except: 
                         rospy.logwarn("Depth not set")
@@ -1308,10 +1308,195 @@ def main():
     except Exception as error:
         rospy.logerr("An error occurred:", error)
         
-         
-          
+ 
+def main2(): 
+    
+    # Initialize the ROS node
+    rospy.init_node('waypoint_follower')
+    rospy.loginfo("starting motion control node")
+    try:
+        # system modes for different situations, hardware, sitl, custom sim
+        system = "sitl"    
+
+        # choose built in, or custom
+        attitude_control = "built in"
+        # attitude_control = "custom"
+
+        # log info time step between debugging lines
+        update_status_interval = 1
+
+        if system == "hardware":
+            ignore_depth_control = True
+            master = mavutil.mavlink_connection('udpin:0.0.0.0:14548') 
+            setup_signal(master)
+            initialize_operating_mode(master=master, mode = "depth hold")
+            
+        elif system == "sitl":
+            ignore_depth_control = False
+            master = mavutil.mavlink_connection('udpin:0.0.0.0:14551')
+            setup_signal(master)
+            initialize_operating_mode(master=master, mode = "depth hold") 
+        elif system == "custom sim":
+            ignore_depth_control = True
+            master = mavutil.mavlink_connection('udpin:0.0.0.0:14548') 
+        
+        # initialize motion controller
+        controller = MotionControl(master = master,system=system)
+        
+        controller.send_signal = "rc"
+
+        while not rospy.is_shutdown():
+            if not controller.state == "Disabled":
+
+                if controller.state == "Initialized":
+                    try:
+                        if ignore_depth_control:
+                            rospy.loginfo_throttle(update_status_interval ,"want to specify a depth here")
+                        # elif not controller.target_depth_sent:
+                        #     rospy.loginfo_throttle(update_status_interval, f"target_depth is {-1*controller.target_depth}")
+                        #     # controller.target_depth_sent = True
+                        #     # send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
+                        #     controller.set_target_depth(-1*controller.target_depth)
+                            
+                            # send_control(x_pwm = 1500, y_pwm = 1500,z_pwm = 1500, yaw_pwm = 1500)
+                                # send_control_manual(master, x_pwm = 0, y_pwm = 0,z_pwm = 500, yaw_pwm = 0)
+                        else:
+                            # rospy.loginfo_throttle(update_status_interval, f"target_depth is {-1*controller.target_depth}")
+                            # send_control_manual(master, x_pwm = 0, y_pwm = 0,z_pwm = 500,yaw_pwm = 0)
+                            # send_control(x_pwm = 1500, y_pwm = 1500,z_pwm = 1500, yaw_pwm = 1500)
+                            # send_control_manual(master, x_pwm = 0, y_pwm = 0,z_pwm = 500, yaw_pwm = 0)
+                            controller.set_target_depth(-1*controller.target_depth)
+                    except: 
+                        rospy.logwarn("Depth not set")
+                                
+
+                elif controller.state == "manual pwm":
+                    # publish setpoints
+                    controller.manual_pwm_user_defined()
+                    # set_rc_channel_pwm(3, master, pwm= z_pwm) #throttle or depth
+
+                    set_rc_channel_pwm(4, master, pwm=controller.yaw_pwm) # yaw
+                    set_rc_channel_pwm(5, master, pwm=controller.x_pwm)  # forward
+                    set_rc_channel_pwm(6, master, pwm=controller.y_pwm) # lateral control
+
+
+                    # send_control(x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
+                    
+                    # send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
+
+                elif controller.state == "velocity":
+                    # compute velocity errors and new pwm signals
+                    controller.velocity_controller()
+
+                    if controller.vz_setpoint == 0:
+                        set_rc_channel_pwm(4, master, pwm=controller.yaw_pwm) # yaw
+                        set_rc_channel_pwm(5, master, pwm=controller.x_pwm)  # forward
+                        set_rc_channel_pwm(6, master, pwm=controller.y_pwm) # lateral control
+                        # setting it equal to 500 allows for depth control mode to hold the current depth 
+                        # send_control(x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
+                    
+                        # send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = 500, yaw_pwm = controller.yaw_pwm)
+                    else: 
+                        set_rc_channel_pwm(3, master, pwm=controller.z_pwm) # z
+                        set_rc_channel_pwm(4, master, pwm=controller.yaw_pwm) # yaw
+                        set_rc_channel_pwm(5, master, pwm=controller.x_pwm)  # forward
+                        set_rc_channel_pwm(6, master, pwm=controller.y_pwm) # lateral control
+                        
+                        # send_control(x_pwm = controller.x_pwm, y_pwm = controller.y_pwm, z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
+                    
+                        # send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
+
+                    # rospy.loginfo_throttle(update_status_interval,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
+                    # rospy.loginfo_throttle(update_status_interval,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
+                    # rospy.loginfo_throttle(update_status_interval,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
+
+                elif controller.state == "waypoint":
+                    rospy.loginfo_throttle(10,"waypoint follower is active")
+
+                    if not controller.current_waypoint == None:
+                        # calculates velocity setpoints
+                        controller.position_controller()
+
+                        # controller.calculate_position_errors()
+                        # controller.calc_x_velocity_setpoint()
+                        # controller.calc_y_velocity_setpoint()
+                        # controller.calc_yaw_velocity_setpoint_final()
+
+                        # calculates pwm output
+                        controller.velocity_controller()
+
+                        # sending the pilot signal
+                        if attitude_control == "built in":
+                            # need to test to see if target attitude works if not switch to yaw controller
+                            controller.set_target_attitude(yaw = controller.target_yaw)
+                            # set_rc_channel_pwm(4, master, pwm=controller.yaw_pwm) # yaw
+                            
+                            set_rc_channel_pwm(5, master, pwm=controller.x_pwm)  # forward
+                            set_rc_channel_pwm(6, master, pwm=controller.y_pwm)
+                                
+                            # send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm,z_pwm=500, yaw_pwm = 0)
+                            # controller.calc_yaw_velocity_setpoint_final()
+                        elif attitude_control == "custom":
+                            # controller.set_target_attitude(yaw = controller.target_yaw)
+                            set_rc_channel_pwm(4, master, pwm=controller.yaw_pwm) # yaw
+                            
+                            set_rc_channel_pwm(5, master, pwm=controller.x_pwm)  # forward
+                            set_rc_channel_pwm(6, master, pwm=controller.y_pwm)
+                            # for sending the actual control via manual mode
+                            # send_control_manual(master, controller.x_pwm,controller.y_pwm)
+                            # send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm,z_pwm=500, yaw_pwm = controller.yaw_pwm)
+                        
+                        # set depth
+                        if ignore_depth_control:
+                            rospy.loginfo_throttle(update_status_interval ,"want to specify a depth here")
+                        else:
+                            controller.set_target_depth(-1*controller.current_waypoint.pose.position.z)
+                            # send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm,z_pwm=controller.z_pwm, yaw_pwm = controller.yaw_pwm)
+                        
+
+                        # rospy.loginfo_throttle(5,"got to the end of motion controller")
+
+
+                        # publish the calculated setpoints
+                        # controller.publish_velocity_setpoints()
+                        # controller.publish_pwm_commands()
+                    
+                        # rospy.loginfo_throttle(2,"Current Pose: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f" ,controller.current_pose.pose.position.x,controller.current_pose.pose.position.y,controller.current_pose.pose.position.z, controller.current_yaw)
+                        # rospy.loginfo_throttle(2,"Current waypoint: x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.current_waypoint.pose.position.x,controller.current_waypoint.pose.position.y,controller.current_waypoint.pose.position.z, controller.waypoint_yaw)
+                        
+                        # rospy.loginfo_throttle(2,"Setpoint Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.vx_setpoint, controller.vy_setpoint, controller.vz_setpoint) 
+                        # rospy.loginfo_throttle(2,"Current Velocity: x=%.2f, y=%.2f, z=%.2f" ,controller.current_velocity.linear.x, controller.current_velocity.linear.y, controller.current_velocity.linear.z) # controller.current_velocity.angular.z) 
+                        # rospy.loginfo_throttle(2,"Control (pwm): x=%.2f, y=%.2f, z=%.2f, yaw=%.2f",controller.x_pwm, controller.y_pwm, controller.z_pwm, controller.yaw_pwm) 
+                
+                    else:
+                        rospy.logwarn_throttle(1, "no waypoint received by motion controller")
+
+                elif controller.state == "Joystick":
+                    rospy.loginfo_throttle(10,"Joystick mode is active")
+
+                else: 
+                    rospy.logerr("Motion controller is in an unexpected state")
+            else: 
+                rospy.loginfo_throttle(5,"motion controller is disabled")
+            
+           
+           
+            # Send heartbeat from a GCS (types are define as enum in the dialect file).
+            master.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS,
+                                                mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
+
+    
+            controller.rate.sleep()   
+
+    except Exception as error:
+        rospy.logerr("An error occurred:", error)
+        
+
+
+     
 
     
 if __name__ == "__main__":
 
-    main()
+    # main()
+    main2()
