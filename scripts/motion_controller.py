@@ -1308,7 +1308,6 @@ def main():
     except Exception as error:
         rospy.logerr("An error occurred:", error)
         
- 
 def main2(): 
     
     # Initialize the ROS node
@@ -1352,14 +1351,7 @@ def main2():
                     try:
                         if ignore_depth_control:
                             rospy.loginfo_throttle(update_status_interval ,"want to specify a depth here")
-                        # elif not controller.target_depth_sent:
-                        #     rospy.loginfo_throttle(update_status_interval, f"target_depth is {-1*controller.target_depth}")
-                        #     # controller.target_depth_sent = True
-                        #     # send_control_manual(master, x_pwm = controller.x_pwm, y_pwm = controller.y_pwm,z_pwm = controller.z_pwm, yaw_pwm = controller.yaw_pwm)
-                        #     controller.set_target_depth(-1*controller.target_depth)
-                            
-                            # send_control(x_pwm = 1500, y_pwm = 1500,z_pwm = 1500, yaw_pwm = 1500)
-                                # send_control_manual(master, x_pwm = 0, y_pwm = 0,z_pwm = 500, yaw_pwm = 0)
+                    
                         else:
                             # rospy.loginfo_throttle(update_status_interval, f"target_depth is {-1*controller.target_depth}")
                             # send_control_manual(master, x_pwm = 0, y_pwm = 0,z_pwm = 500,yaw_pwm = 0)
@@ -1490,13 +1482,8 @@ def main2():
 
     except Exception as error:
         rospy.logerr("An error occurred:", error)
-        
-
-
-     
-
-    
+            
 if __name__ == "__main__":
 
-    # main()
-    main2()
+    main()
+    # main2()
