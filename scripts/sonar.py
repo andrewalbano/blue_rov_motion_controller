@@ -108,24 +108,24 @@ class SonarTopic():
         # Picture centering: Add or subtract to x, y to move picture frame
         # print(theta.shape,radius.shape)
         
-        x = np.multiply(radius,np.cos(theta))
-        y = np.multiply(radius,np.sin(theta)) + 125            
+        x = np.outer(radius,np.cos(theta))
+        y = np.outer(radius,np.sin(theta)) + 125            
         
-        # print(x.shape,y.shape)
+        print("XY",x.shape,y.shape,self.image_array.shape)
         # print(np.outer(x,y))
-        print(int(x[-1].astype(int)))
-        transform = np.empty(shape=(int(x[-1].astype(int)),int(y[-1].astype(int)))) # Maps the grayscale value for each pixel from the cylindrical image to the cartesian
+        # print(int(x[-1].astype(int)))
+        # transform = np.empty(shape=(int(x[-1].astype(int)),int(y[-1].astype(int)))) # Maps the grayscale value for each pixel from the cylindrical image to the cartesian
         # transform.setflags(write=1)
-        print(transform.shape)
-        mask = self.image_array < 40
-        # print("m=",mask.shape)
+        print("Tr",transform.shape)
+        mask = self.image_array < 0
+        # print(int(x[-1].astype(int),int(y[-1].astype(int))))
         transform[mask.astype(int)] = self.image_array
 
         positive_detection = transform
         positive_detection = np.roll(positive_detection,axis=1,shift=100)
         positive_detection = positive_detection[0:125,100:350]
 
-        self.squeeze = bridge.cv2_to_imgmsg(positive_detection.astype(np.uint8),encoding='passthrough')
+        self.squeeze = bridge.cv2_to_imgmsg(transform.astype(np.uint8),encoding='passthrough')
 
         self.compressed_image.publish(self.squeeze)
         return positive_detection

@@ -1082,7 +1082,7 @@ class MotionControl:
             #  (all not supported yet, ignored in GCS Mavlink)
         )
     
-    def set_target_attitude(self, roll=0, pitch=0, yaw=0):
+    def set_target_attitude(self, roll=0, pitch=0, yaw=0, yaw_rate =0):
         """ Sets the target attitude while in depth-hold mode.
 
         'roll', 'pitch', and 'yaw' are angles in rad.
@@ -1093,9 +1093,9 @@ class MotionControl:
             self.master.target_system, self.master.target_component,
             # allow throttle to be controlled by depth_hold mode
             mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_THROTTLE_IGNORE,
-            # -> attitude quaternion (w, x, y, z | zero-rotation is 1, 0, 0, 0)
+            # -> attitude quaternion (w, x, y, z | zero-rotation is 1, 0,, 0, 0)
             QuaternionBase([roll,pitch,yaw]),
-            0, 0, 0, 0 # roll rate, pitch rate, yaw rate, thrust
+            0, 0, yaw_rate, 0 # roll rate, pitch rate, yaw rate, thrust
         )
 
         
@@ -1167,11 +1167,11 @@ def main():
     rospy.loginfo("starting motion control node")
     try:
         # system modes for different situations, hardware, sitl, custom sim
-        system = "custom sim"    
+        system = "sitl"    
 
         # choose built in, or custom
-        # attitude_control = "built in"
-        attitude_control = "custom"
+        attitude_control = "built in"
+        # attitude_control = "custom"
 
         # log info time step between debugging lines
         update_status_interval = 1
@@ -1255,7 +1255,7 @@ def main():
                         # sending the pilot signal
                         if attitude_control == "built in":
                             # need to test to see if target attitude works if not switch to yaw controller
-                            controller.set_target_attitude(yaw = controller.target_yaw)
+                            controller.set_target_attitude(yaw = controller.target_yaw, yaw_rate = controller.vyaw_setpoint)
                             send_control_manual(master, x_pwm = controller.x_pwm,y_pwm = controller.y_pwm,z_pwm=500, yaw_pwm = 0)
                             # controller.calc_yaw_velocity_setpoint_final()
                         elif attitude_control == "custom":
