@@ -98,7 +98,7 @@ def set_target_depth(depth):
         #  (all not supported yet, ignored in GCS Mavlink)
     )
 
-def set_target_attitude(master,roll, pitch, yaw):
+def set_target_attitude(master,roll, pitch, yaw, yaw_rate = 0):
     """ Sets the target attitude while in depth-hold mode.
 
     'roll', 'pitch', and 'yaw' are angles in degrees.
@@ -111,7 +111,7 @@ def set_target_attitude(master,roll, pitch, yaw):
         mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_THROTTLE_IGNORE,
         # -> attitude quaternion (w, x, y, z | zero-rotation is 1, 0, 0, 0)
         QuaternionBase([math.radians(angle) for angle in (roll, pitch, yaw)]),
-        0, 0, 0, 0 # roll rate, pitch rate, yaw rate, thrust
+        0, 0, yaw_rate, 0 # roll rate, pitch rate, yaw rate, thrust
     )
 
 # connect to bluerov
@@ -154,7 +154,7 @@ def main():
     while not rospy.is_shutdown():
         roll_angle =0 
         pitch_angle =0
-        yaw_angle = 90
+        yaw_angle = 50
         set_target_attitude(master,roll_angle, pitch_angle, yaw_angle)
         time.sleep(5)
 
