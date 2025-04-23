@@ -1167,11 +1167,11 @@ def main():
     rospy.loginfo("starting motion control node")
     try:
         # system modes for different situations, hardware, sitl, custom sim
-        system = "sitl"    
+        system = "custom sim"    
 
         # choose built in, or custom
-        attitude_control = "built in"
-        # attitude_control = "custom"
+        # attitude_control = "built in"
+        attitude_control = "custom"
 
         # log info time step between debugging lines
         update_status_interval = 1
